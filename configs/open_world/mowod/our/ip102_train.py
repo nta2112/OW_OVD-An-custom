@@ -35,17 +35,17 @@ top_k = 10
 # yolo world setting
 num_classes = len(class_names)
 num_training_classes = len(class_names)
-max_epochs = 1  # 1 epoch for testing/trial
-close_mosaic_epochs = 1
-save_epoch_intervals = 1
+max_epochs = 50  # Huấn luyện chính thức 50 epoch
+close_mosaic_epochs = 10
+save_epoch_intervals = 5
 text_channels = 512
 neck_embed_channels = [128, 256, _base_.last_stage_out_channels // 2]
 neck_num_heads = [4, 8, _base_.last_stage_out_channels // 2 // 32]
 base_lr = 2e-4 / 4
 weight_decay = 0.05
-train_batch_size_per_gpu = 4 # Small batch size for trial
+train_batch_size_per_gpu = 16 # Tăng batch size lên 16 cho GPU T4 x2
 load_from = 'pretrained_models/yolo_world_v2_l_obj365v1_goldg_pretrain-a82b1fe3.pth'
-persistent_workers = False
+persistent_workers = True
 
 # model settings
 model = dict(type='OurDetector',
