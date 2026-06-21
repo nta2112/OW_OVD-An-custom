@@ -23,13 +23,13 @@ finally:
 prev_intro_cls = 0
 cur_intro_cls = len(class_names)
 train_json = '/kaggle/input/datasets/eljazouly/ip102-coco-annotations/coco_annotations/train.json'
-embedding_path = '/kaggle/working/data/IP102/ip102_gt_embeddings.npy'
-att_embeddings = '/kaggle/working/data/IP102/task_att_1_embeddings.pth'
+embedding_path = 'data/IP102/ip102_gt_embeddings.npy'
+att_embeddings = 'data/IP102/task_att_1_embeddings.pth'
 pipline = [dict(type='att_select', log_start_epoch=1)]
 thr = 0.55
 alpha = 0.2
 use_sigmoid = True
-distributions = '/kaggle/working/data/IP102/mowod_distribution_sim1.pth'
+distributions = 'data/IP102/mowod_distribution_sim1.pth'
 top_k = 10
 
 # yolo world setting
@@ -44,7 +44,7 @@ neck_num_heads = [4, 8, _base_.last_stage_out_channels // 2 // 32]
 base_lr = 2e-4 / 4
 weight_decay = 0.05
 train_batch_size_per_gpu = 4 # Small batch size for trial
-load_from = '/kaggle/working/pretrained_models/yolo_world_v2_l_obj365v1_goldg_pretrain-a82b1fe3.pth'
+load_from = 'pretrained_models/yolo_world_v2_l_obj365v1_goldg_pretrain-a82b1fe3.pth'
 persistent_workers = False
 
 # model settings
