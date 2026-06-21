@@ -9,9 +9,15 @@ try:
         coco_data = json.load(f)
     categories = sorted(coco_data['categories'], key=lambda x: x['id'])
     class_names = [cat['name'] for cat in categories]
+    del f, coco_data, categories
 except Exception:
     # Fallback placeholder list for local validation
     class_names = [f"pest_{i}" for i in range(102)]
+finally:
+    try:
+        del json
+    except NameError:
+        pass
 
 # open world setting
 prev_intro_cls = 0
