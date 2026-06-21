@@ -98,7 +98,7 @@ coco_train_dataset = dict(
             ann_file=train_json,
             data_prefix=dict(img=''),
             filter_cfg=dict(filter_empty_gt=False, min_size=32)),
-        class_text_path='/kaggle/working/data/texts/IP102/class_texts.json',
+        class_text_path='data/texts/IP102/class_texts.json',
         pipeline=_base_.train_pipeline)
 
 train_dataloader = dict(persistent_workers=persistent_workers,
