@@ -274,7 +274,7 @@ class OurHead(YOLOv8Head):
         super().__init__(*args, **kwargs)
         self.thr = thr
         self.world_size = world_size
-        self.device = device
+        self._device = device
         self.alpha = alpha
         self.use_sigmoid = use_sigmoid
         self.distributions = distributions
@@ -285,6 +285,12 @@ class OurHead(YOLOv8Head):
         self.prev_distribution = prev_distribution
         self.top_k = top_k
         self.load_att_embeddings(att_embeddings)
+
+    @property
+    def device(self):
+        for param in self.parameters():
+            return param.device
+        return self._device
     
     def disable_log(self):
         self.positive_distributions = None
@@ -305,7 +311,7 @@ class OurHead(YOLOv8Head):
         self.all_atts = atts['att_embedding']
         if self.prev_distribution is not None:
             # todo this
-            prev_atts_num = len(torch.load(self.prev_distribution, map_location='cuda')['positive_distributions'][self.thrs.index(self.thr)])
+            prev_atts_num = len(torch.load(self.prev_distribution, map_location=self.device)['positive_distributions'][self.thrs.index(self.thr)])
         else:
             prev_atts_num = 0
         self.att_embeddings = torch.nn.Parameter(atts['att_embedding'].float()[prev_atts_num:])
@@ -479,14 +485,14 @@ class OurHead(YOLOv8Head):
             negative = negative / negative.sum()
             dis_sim.append(self.get_sim(positive, negative))
         # (num_attributes,)
-        return torch.stack(dis_sim).to('cuda')
+        return torch.stack(dis_sim).to(self.device)
         
     def combine_distributions(self):
         if self.prev_distribution is None:
             return self.positive_distributions, self.negative_distributions
 
         # Load previous distributions
-        prev_distributions = torch.load(self.prev_distribution, map_location='cuda')
+        prev_distributions = torch.load(self.prev_distribution, map_location=self.device)
         prev_positive_distributions, prev_negative_distributions = prev_distributions['positive_distributions'], prev_distributions['negative_distributions']
 
         # Initialize result lists
@@ -531,7 +537,7 @@ class OurHead(YOLOv8Head):
         #             'negative_distributions': self.negative_distributions}, self.distributions)
         # print('save distributions to {}'.format(self.distributions))
         
-        distributions = torch.load(self.distributions, map_location='cuda')
+        distributions = torch.load(self.distributions, map_location=self.device)
         self.positive_distributions, self.negative_distributions = distributions['positive_distributions'], distributions['negative_distributions']
         
         thr_id = self.thrs.index(self.thr)                                                            
