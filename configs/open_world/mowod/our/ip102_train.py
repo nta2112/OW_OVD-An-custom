@@ -164,7 +164,8 @@ test_pipeline = [
                     'scale_factor', 'pad_param'))
 ]
 
-test_dataloader = dict(dataset=dict(type='YOLOv5CocoDataset',
+test_dataloader = dict(batch_size=16,
+                        dataset=dict(type='YOLOv5CocoDataset',
                         data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
                         ann_file=train_json,
                         data_prefix=dict(img=''),
