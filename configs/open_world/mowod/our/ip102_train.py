@@ -42,7 +42,7 @@ top_k = 10
 # yolo world setting
 num_classes = len(class_names)
 num_training_classes = len(class_names)
-max_epochs = 50  # Huấn luyện chính thức 50 epoch
+max_epochs = 20  # Huấn luyện chính thức 20 epoch
 close_mosaic_epochs = 10
 save_epoch_intervals = 5
 text_channels = 512
