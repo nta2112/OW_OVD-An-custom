@@ -175,7 +175,7 @@ test_dataloader = dict(dataset=dict(type='YOLOv5CocoDataset',
 test_evaluator = dict(_delete_=True,
                      type='OWODEvaluator',
                      cfg=dict(
-                        dataset_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
+                        dataset_root='data/IP102/voc/',
                         file_name='mowod/all_task_test.txt',
                         prev_intro_cls=prev_intro_cls,
                         cur_intro_cls=cur_intro_cls,
