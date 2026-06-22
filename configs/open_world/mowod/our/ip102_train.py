@@ -2,47 +2,12 @@ _base_ = ('../../../../third_party/mmyolo/configs/yolov8/'
           'yolov8_l_syncbn_fast_8xb16-500e_coco.py')
 custom_imports = dict(imports=['yolo_world'], allow_failed_imports=False)
 
-# Suppress MMEngine's extremely verbose configuration and hook printing at startup
-import logging
-import warnings
-warnings.filterwarnings('ignore')
-
+# Suppress MMEngine's extremely verbose configuration printing at startup
+import mmengine
 try:
-    import pycocotools.coco
-    pycocotools.coco.print = lambda *args, **kwargs: None
+    mmengine.Config.pretty_text = property(lambda self: "[Config dump suppressed for cleaner logs]")
 except Exception:
     pass
-
-class CleanLogFilter(logging.Filter):
-    def filter(self, record):
-        msg = record.getMessage()
-        if 'Config:' in msg or 'Config dump suppressed' in msg:
-            return False
-        if 'Hooks will be executed in the following order:' in msg:
-            return False
-        if 'Hook' in msg and '(' in msg and ')' in msg:
-            return False
-        if msg.strip() == '--------------------':
-            return False
-        hook_stages = {
-            'before_run:', 'before_train:', 'before_train_epoch:', 'before_train_iter:',
-            'after_train_iter:', 'after_train_epoch:', 'before_val:', 'before_val_epoch:',
-            'before_val_iter:', 'after_val_iter:', 'after_val_epoch:', 'after_val:',
-            'after_train:', 'before_test:', 'before_test_epoch:', 'before_test_iter:',
-            'after_test_iter:', 'after_test_epoch:', 'after_test:', 'after_run:'
-        }
-        if msg.strip() in hook_stages:
-            return False
-        if 'Using SyncBatchNorm()' in msg:
-            return False
-        if 'paramwise_options --' in msg:
-            return False
-        if 'save_param_scheduler' in msg and 'skip saving' in msg:
-            return False
-        return True
-
-logging.getLogger().addFilter(CleanLogFilter())
-logging.getLogger('mmengine').addFilter(CleanLogFilter())
 
 # Dynamically load class names from IP102 annotations on Kaggle
 import json
