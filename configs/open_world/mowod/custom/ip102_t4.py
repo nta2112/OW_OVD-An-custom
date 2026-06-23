@@ -104,7 +104,7 @@ coco_train_dataset = dict(
             data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
             ann_file=train_json,
             data_prefix=dict(img=''),
-            filter_cfg=dict(filter_empty_gt=False, min_size=32)),
+            filter_cfg=dict(filter_empty_gt=True, min_size=32)),
         class_text_path='data/texts/IP102/class_texts.json',
         pipeline=_base_.train_pipeline)
 
