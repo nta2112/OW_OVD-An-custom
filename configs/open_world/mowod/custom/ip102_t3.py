@@ -27,8 +27,8 @@ finally:
         pass
 
 # open world setting
-prev_intro_cls = 50
-cur_intro_cls = 25
+prev_intro_cls = 6
+cur_intro_cls = 3
 train_json = '/kaggle/input/datasets/eljazouly/ip102-coco-annotations/coco_annotations/train.json'
 embedding_path = 'data/IP102/ip102_gt_embeddings.npy'
 att_embeddings = 'data/IP102/task_att_1_embeddings.pth'
@@ -40,8 +40,8 @@ distributions = 'data/IP102/mowod_distribution_sim1.pth'
 top_k = 10
 
 # yolo world setting
-num_classes = 75
-num_training_classes = prev_intro_cls + cur_intro_cls  # 75
+num_classes = 9
+num_training_classes = prev_intro_cls + cur_intro_cls  # 9
 max_epochs = 20
 close_mosaic_epochs = 5
 save_epoch_intervals = 2
@@ -100,7 +100,7 @@ coco_train_dataset = dict(
         type='MultiModalDataset',
         dataset=dict(
             type='YOLOv5CocoDataset',
-            metainfo=dict(classes=class_names[:75]),  # Learn only the first 75 classes (t1 + t2 + t3)
+            metainfo=dict(classes=class_names[:9]),  # Learn only the first 9 classes (t1 + t2 + t3)
             data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
             ann_file=train_json,
             data_prefix=dict(img=''),
