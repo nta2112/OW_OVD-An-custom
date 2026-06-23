@@ -129,7 +129,7 @@ class OurDetector(YOLODetector):
             if self.training:
                 txt_feats = self.embeddings[:self.num_training_classes][None]
             else:
-                txt_feats = self.embeddings[None]
+                txt_feats = self.embeddings[:self.num_test_classes][None]
             if self.adapter is not None:
                 txt_feats = self.adapter(txt_feats) + txt_feats
                 txt_feats = nn.functional.normalize(txt_feats, dim=-1, p=2)

@@ -40,7 +40,7 @@ distributions = 'data/IP102/mowod_distribution_sim1.pth'
 top_k = 10
 
 # yolo world setting
-num_classes = len(class_names)  # 102
+num_classes = 50
 num_training_classes = prev_intro_cls + cur_intro_cls  # 50
 max_epochs = 20
 close_mosaic_epochs = 5
@@ -61,7 +61,7 @@ model = dict(type='OurDetector',
              num_test_classes=num_classes,
              embedding_path=embedding_path,
              prompt_dim=text_channels,
-             num_prompts=num_classes,
+             num_prompts=len(class_names),
              pipline=pipline,
              data_preprocessor=dict(type='YOLOv5DetDataPreprocessor'),
              backbone=dict(_delete_=True,
