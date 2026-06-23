@@ -42,9 +42,9 @@ top_k = 10
 # yolo world setting
 num_classes = len(class_names)  # 102
 num_training_classes = 25
-max_epochs = 20
-close_mosaic_epochs = 5
-save_epoch_intervals = 2
+max_epochs = 2
+close_mosaic_epochs = 1
+save_epoch_intervals = 1
 text_channels = 512
 neck_embed_channels = [128, 256, _base_.last_stage_out_channels // 2]
 neck_num_heads = [4, 8, _base_.last_stage_out_channels // 2 // 32]
