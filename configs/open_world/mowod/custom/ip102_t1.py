@@ -50,7 +50,7 @@ neck_embed_channels = [128, 256, _base_.last_stage_out_channels // 2]
 neck_num_heads = [4, 8, _base_.last_stage_out_channels // 2 // 32]
 base_lr = 1e-4
 weight_decay = 0.05
-train_batch_size_per_gpu = 16
+train_batch_size_per_gpu = 24
 load_from = 'pretrained_models/yolo_world_v2_l_obj365v1_goldg_pretrain-a82b1fe3.pth'
 persistent_workers = True
 
@@ -166,7 +166,7 @@ test_pipeline = [
                     'scale_factor', 'pad_param'))
 ]
 
-test_dataloader = dict(batch_size=16,
+test_dataloader = dict(batch_size=24,
                         dataset=dict(type='YOLOv5CocoDataset',
                         metainfo=dict(classes=class_names),  # Full 102 classes for evaluation
                         data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
