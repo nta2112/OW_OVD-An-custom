@@ -126,7 +126,10 @@ class OurDetector(YOLODetector):
 
         if not self.reparameterized:
             # use embeddings
-            txt_feats = self.embeddings[None]
+            if self.training:
+                txt_feats = self.embeddings[:self.num_training_classes][None]
+            else:
+                txt_feats = self.embeddings[None]
             if self.adapter is not None:
                 txt_feats = self.adapter(txt_feats) + txt_feats
                 txt_feats = nn.functional.normalize(txt_feats, dim=-1, p=2)
