@@ -11,7 +11,7 @@ try:
     _orig_info = MMLogger.info
     def _clean_info(self, msg, *args, **kwargs):
         msg_str = str(msg)
-        if 'OurDetector(' in msg_str or 'MultiModalYOLOBackbone(' in msg_str:
+        if 'OurDetector(' in msg_str or 'MultiModalYOLOBackbone(' in msg_str or 'paramwise_options' in msg_str:
             return
         _orig_info(self, msg, *args, **kwargs)
     MMLogger.info = _clean_info
@@ -181,7 +181,7 @@ test_dataloader = dict(batch_size=24,
                         data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
                         ann_file=train_json,
                         data_prefix=dict(img=''),
-                        filter_cfg=dict(filter_empty_gt=False, min_size=32),
+                        filter_cfg=dict(filter_empty_gt=True, min_size=32),
                         pipeline=test_pipeline)
                        )
 
