@@ -18,6 +18,19 @@ try:
 except Exception:
     pass
 
+# Fool-proof monkey patch to fix double 'test/test/' path bug in Kaggle datasets
+try:
+    from mmyolo.datasets import YOLOv5CocoDataset
+    _orig_parse = YOLOv5CocoDataset.parse_data_info
+    def _patched_parse(self, raw_data_info):
+        data_info = _orig_parse(self, raw_data_info)
+        if 'img_path' in data_info and 'test/test/' in data_info['img_path']:
+            data_info['img_path'] = data_info['img_path'].replace('test/test/', 'test/')
+        return data_info
+    YOLOv5CocoDataset.parse_data_info = _patched_parse
+except Exception:
+    pass
+
 # Dynamically load class names from IP102 annotations on Kaggle
 import json
 try:
