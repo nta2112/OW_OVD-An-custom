@@ -6,6 +6,15 @@ custom_imports = dict(imports=['yolo_world'], allow_failed_imports=False)
 import mmengine
 try:
     mmengine.Config.pretty_text = property(lambda self: "[Config dump suppressed for cleaner logs]")
+    # Suppress verbose model architecture logging
+    from mmengine.logging import MMLogger
+    _orig_info = MMLogger.info
+    def _clean_info(self, msg, *args, **kwargs):
+        msg_str = str(msg)
+        if 'OurDetector(' in msg_str or 'MultiModalYOLOBackbone(' in msg_str:
+            return
+        _orig_info(self, msg, *args, **kwargs)
+    MMLogger.info = _clean_info
 except Exception:
     pass
 
@@ -168,7 +177,7 @@ test_pipeline = [
 
 test_dataloader = dict(batch_size=24,
                         dataset=dict(type='YOLOv5CocoDataset',
-                        metainfo=dict(classes=class_names),  # Full 102 classes for evaluation
+                        metainfo=dict(classes=class_names[:9]),  # Evaluate on first 9 classes
                         data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
                         ann_file=train_json,
                         data_prefix=dict(img=''),
@@ -184,7 +193,7 @@ test_evaluator = dict(_delete_=True,
                          prev_intro_cls=prev_intro_cls,
                          cur_intro_cls=cur_intro_cls,
                          unknown_id=102,
-                         class_names=class_names
+                         class_names=class_names[:9]
                       )
                      )
 val_evaluator = test_evaluator
