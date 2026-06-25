@@ -181,7 +181,7 @@ test_dataloader = dict(batch_size=24,
                         metainfo=dict(classes=class_names[:9]),  # Evaluate on first 9 classes
                         data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
                         ann_file=test_json,
-                        data_prefix=dict(img='test/'),
+                        data_prefix=dict(img=''),
                         filter_cfg=dict(filter_empty_gt=True, min_size=32),
                         pipeline=test_pipeline)
                        )
