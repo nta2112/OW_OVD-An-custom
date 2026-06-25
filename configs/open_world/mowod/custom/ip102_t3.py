@@ -39,6 +39,7 @@ finally:
 prev_intro_cls = 6
 cur_intro_cls = 3
 train_json = '/kaggle/input/datasets/eljazouly/ip102-coco-annotations/coco_annotations/train.json'
+test_json = '/kaggle/input/datasets/eljazouly/ip102-coco-annotations/coco_annotations/test.json'
 embedding_path = 'data/IP102/ip102_gt_embeddings.npy'
 att_embeddings = 'data/IP102/task_att_1_embeddings.pth'
 pipline = [dict(type='att_select', log_start_epoch=1)]
@@ -179,8 +180,8 @@ test_dataloader = dict(batch_size=24,
                         dataset=dict(type='YOLOv5CocoDataset',
                         metainfo=dict(classes=class_names[:9]),  # Evaluate on first 9 classes
                         data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
-                        ann_file=train_json,
-                        data_prefix=dict(img=''),
+                        ann_file=test_json,
+                        data_prefix=dict(img='test/'),
                         filter_cfg=dict(filter_empty_gt=True, min_size=32),
                         pipeline=test_pipeline)
                        )
