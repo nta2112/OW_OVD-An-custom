@@ -344,6 +344,7 @@ class OWODEvaluator(BaseMetric):
             dataset_name (str): name of the dataset, e.g., "voc_2007_test"
         """
         super().__init__(collect_device=collect_device, prefix=prefix)
+        self._logger = logger
         self._dataset_name = dataset_name
 
         self._anno_file_template = os.path.join(cfg['dataset_root'], "Annotations", "{}.xml")
@@ -356,7 +357,6 @@ class OWODEvaluator(BaseMetric):
         self._class_names = cfg['class_names'] + ['unknown']
         self._is_2007 = False
         self._cpu_device = torch.device("cpu")
-        self._logger = logger
         if cfg is not None:
             self.prev_intro_cls = cfg['prev_intro_cls']
             self.curr_intro_cls = cfg['cur_intro_cls']
