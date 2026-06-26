@@ -189,15 +189,21 @@ test_pipeline = [
                     'scale_factor', 'pad_param'))
 ]
 
-test_dataloader = dict(batch_size=24,
-                        dataset=dict(type='YOLOv5CocoDataset',
-                        metainfo=dict(classes=class_names[:9]),  # Evaluate on first 9 classes
-                        data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
-                        ann_file=test_json,
-                        data_prefix=dict(img=''),
-                        filter_cfg=dict(filter_empty_gt=True, min_size=32),
-                        pipeline=test_pipeline)
-                       )
+test_dataloader = dict(
+    _delete_=True,
+    batch_size=24,
+    num_workers=2,
+    persistent_workers=True,
+    drop_last=False,
+    sampler=dict(type='DefaultSampler', shuffle=False),
+    dataset=dict(type='YOLOv5CocoDataset',
+                 metainfo=dict(classes=class_names[:9]),  # Evaluate on first 9 classes
+                 data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
+                 ann_file=test_json,
+                 data_prefix=dict(img=''),
+                 filter_cfg=dict(filter_empty_gt=True, min_size=32),
+                 pipeline=test_pipeline)
+)
 
 test_evaluator = dict(_delete_=True,
                       type='OWODEvaluator',
