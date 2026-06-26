@@ -348,6 +348,11 @@ class OWODEvaluator(BaseMetric):
 
         self._anno_file_template = os.path.join(cfg['dataset_root'], "Annotations", "{}.xml")
         self._image_set_path = os.path.join(cfg['dataset_root'], "ImageSets", "Main", cfg['file_name'])
+        
+        # --- NEW CODE TO AUTO GENERATE PASCAL VOC XML ---
+        if 'ann_file' in cfg and cfg['ann_file'] is not None:
+            self._auto_generate_voc(cfg['ann_file'], cfg['dataset_root'], cfg['file_name'])
+        # ------------------------------------------------
         self._class_names = cfg['class_names'] + ['unknown']
         self._is_2007 = False
         self._cpu_device = torch.device("cpu")
@@ -359,6 +364,55 @@ class OWODEvaluator(BaseMetric):
             self.num_seen_classes = self.prev_intro_cls + self.curr_intro_cls
             self.known_classes = self._class_names[:self.num_seen_classes]
         self._predictions = defaultdict(list)  # class name -> list of prediction strings
+
+    def _auto_generate_voc(self, ann_file, dataset_root, file_name):
+        import json
+        import os
+        anno_dir = os.path.join(dataset_root, "Annotations")
+        imageset_dir = os.path.join(dataset_root, "ImageSets", "Main", os.path.dirname(file_name))
+        txt_path = os.path.join(dataset_root, "ImageSets", "Main", file_name)
+        
+        try:
+            with open(ann_file, 'r') as f:
+                coco_data = json.load(f)
+            
+            os.makedirs(anno_dir, exist_ok=True)
+            os.makedirs(imageset_dir, exist_ok=True)
+            
+            cat_map = {cat['id']: cat['name'] for cat in coco_data.get('categories', [])}
+            image_annos = {}
+            for ann in coco_data.get('annotations', []):
+                image_annos.setdefault(ann['image_id'], []).append(ann)
+                
+            image_names = []
+            for img in coco_data.get('images', []):
+                img_id = img['id']
+                fname = img['file_name']
+                img_stem = os.path.splitext(os.path.basename(fname))[0]
+                image_names.append(img_stem)
+                
+                xml_content = f"<annotation>\n  <filename>{os.path.basename(fname)}</filename>\n"
+                xml_content += f"  <size>\n    <width>{img.get('width', 640)}</width>\n    <height>{img.get('height', 640)}</height>\n    <depth>3</depth>\n  </size>\n"
+                
+                for ann in image_annos.get(img_id, []):
+                    bbox = ann['bbox']
+                    cat_name = cat_map.get(ann['category_id'], 'unknown')
+                    xmin, ymin = max(1, int(round(bbox[0]))), max(1, int(round(bbox[1])))
+                    xmax, ymax = max(xmin + 1, int(round(bbox[0] + bbox[2]))), max(ymin + 1, int(round(bbox[1] + bbox[3])))
+                    
+                    xml_content += f"  <object>\n    <name>{cat_name}</name>\n    <pose>Unspecified</pose>\n    <truncated>0</truncated>\n    <difficult>0</difficult>\n"
+                    xml_content += f"    <bndbox>\n      <xmin>{xmin}</xmin>\n      <ymin>{ymin}</ymin>\n      <xmax>{xmax}</xmax>\n      <ymax>{ymax}</ymax>\n    </bndbox>\n  </object>\n"
+                
+                xml_content += "</annotation>"
+                with open(os.path.join(anno_dir, f"{img_stem}.xml"), 'w', encoding='utf-8') as f_xml:
+                    f_xml.write(xml_content)
+            
+            with open(txt_path, 'w') as f_txt:
+                f_txt.write("\n".join(image_names))
+            
+            self._logger.info(f"Auto-generated VOC XMLs from {ann_file} into {dataset_root}")
+        except Exception as e:
+            self._logger.error(f"Failed to auto-generate VOC XMLs: {e}")
 
     def process(self, data_samples, data_batch):
         for each_result in data_batch:

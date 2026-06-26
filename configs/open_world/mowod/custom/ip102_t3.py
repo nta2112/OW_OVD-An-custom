@@ -203,6 +203,7 @@ test_evaluator = dict(_delete_=True,
                       type='OWODEvaluator',
                       cfg=dict(
                          dataset_root='data/IP102/voc/',
+                         ann_file=test_json,
                          file_name='mowod/all_task_test.txt',
                          prev_intro_cls=prev_intro_cls,
                          cur_intro_cls=cur_intro_cls,
