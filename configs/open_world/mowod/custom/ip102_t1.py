@@ -65,7 +65,7 @@ top_k = 10
 # yolo world setting
 num_classes = 3
 num_training_classes = 3
-max_epochs = 20
+max_epochs = 40
 close_mosaic_epochs = 5
 save_epoch_intervals = 1
 text_channels = 512
