@@ -6,6 +6,28 @@ custom_imports = dict(imports=['yolo_world'], allow_failed_imports=False)
 import mmengine
 try:
     mmengine.Config.pretty_text = property(lambda self: "[Config dump suppressed for cleaner logs]")
+    # Suppress verbose model architecture logging
+    from mmengine.logging import MMLogger
+    _orig_info = MMLogger.info
+    def _clean_info(self, msg, *args, **kwargs):
+        msg_str = str(msg)
+        if any(term in msg_str for term in ['OurDetector(', 'MultiModalYOLOBackbone(', 'paramwise_options', 'Checkpoints will be saved to']):
+            return
+        _orig_info(self, msg, *args, **kwargs)
+    MMLogger.info = _clean_info
+except Exception:
+    pass
+
+# Fool-proof monkey patch to fix double 'test/test/' path bug in Kaggle datasets
+try:
+    from mmyolo.datasets import YOLOv5CocoDataset
+    _orig_parse = YOLOv5CocoDataset.parse_data_info
+    def _patched_parse(self, raw_data_info):
+        data_info = _orig_parse(self, raw_data_info)
+        if 'img_path' in data_info and 'test/test/' in data_info['img_path']:
+            data_info['img_path'] = data_info['img_path'].replace('test/test/', 'test/')
+        return data_info
+    YOLOv5CocoDataset.parse_data_info = _patched_parse
 except Exception:
     pass
 
@@ -27,9 +49,10 @@ finally:
         pass
 
 # open world setting
-prev_intro_cls = 9
-cur_intro_cls = 3
+prev_intro_cls = 77
+cur_intro_cls = 25
 train_json = '/kaggle/input/datasets/eljazouly/ip102-coco-annotations/coco_annotations/train.json'
+test_json = '/kaggle/input/datasets/eljazouly/ip102-coco-annotations/coco_annotations/test.json'
 embedding_path = 'data/IP102/ip102_gt_embeddings.npy'
 att_embeddings = 'data/IP102/task_att_1_embeddings.pth'
 pipline = [dict(type='att_select', log_start_epoch=1)]
@@ -40,11 +63,11 @@ distributions = 'data/IP102/mowod_distribution_sim1.pth'
 top_k = 10
 
 # yolo world setting
-num_classes = 12
-num_training_classes = prev_intro_cls + cur_intro_cls  # 12
-max_epochs = 20
-close_mosaic_epochs = 5
-save_epoch_intervals = 2
+num_classes = 102
+num_training_classes = 102
+max_epochs = 1
+close_mosaic_epochs = 1
+save_epoch_intervals = 1
 text_channels = 512
 neck_embed_channels = [128, 256, _base_.last_stage_out_channels // 2]
 neck_num_heads = [4, 8, _base_.last_stage_out_channels // 2 // 32]
@@ -71,7 +94,7 @@ model = dict(type='OurDetector',
                            frozen_stages=4,
                            with_text_model=False),
              neck=dict(type='YOLOWorldPAFPN',
-                       freeze_all=False,              # Unfreeze PAFPN neck to learn pest features
+                       freeze_all=True,              # Frozen neck to run like original MOWOD and speed up
                        guide_channels=text_channels,
                        embed_channels=neck_embed_channels,
                        num_heads=neck_num_heads,
@@ -87,7 +110,7 @@ model = dict(type='OurDetector',
                             top_k=top_k,
                             head_module=dict(
                                 type='OurHeadModule',
-                                freeze_all=False,     # Unfreeze Head module to align with text embeddings
+                                freeze_all=True,     # Frozen head module to run like original MOWOD and speed up
                                 use_bn_head=True,
                                 embed_dims=text_channels,
                                 num_classes=num_training_classes,),),
@@ -100,7 +123,7 @@ coco_train_dataset = dict(
         type='MultiModalDataset',
         dataset=dict(
             type='YOLOv5CocoDataset',
-            metainfo=dict(classes=class_names[:12]),       # Learn only the first 12 classes (t1 + t2 + t3 + t4)
+            metainfo=dict(classes=class_names),       # Learn all 102 classes in T4
             data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
             ann_file=train_json,
             data_prefix=dict(img=''),
@@ -110,6 +133,7 @@ coco_train_dataset = dict(
 
 train_dataloader = dict(persistent_workers=persistent_workers,
                         batch_size=train_batch_size_per_gpu,
+                        num_workers=4,                         # Parallel data loading to improve speed
                         collate_fn=dict(type='yolow_collate'),
                         dataset=coco_train_dataset)
 
@@ -117,14 +141,19 @@ custom_hooks = [
     dict(type='mmdet.PipelineSwitchHook',
          switch_epoch=max_epochs - close_mosaic_epochs,
          switch_pipeline=_base_.train_pipeline_stage2),
-    dict(type='OurWorkPiplineHook')
+    dict(type='OurWorkPiplineHook'),
+    dict(type='EarlyStoppingHook',                             # Early Stopping Hook configuration
+         monitor='coco/Known AP50',
+         rule='greater',
+         patience=2,                                           # Stop training if AP50 doesn't improve for 3 epochs
+         min_delta=0.001)
 ]
 
 default_hooks = dict(
     checkpoint=dict(
-        interval=save_epoch_intervals, max_keep_ckpts=2, save_best='Current class AP50', rule='greater',
+        interval=save_epoch_intervals, max_keep_ckpts=2, save_best='Known AP50', rule='greater',
         type='CheckpointHook'),
-    logger=dict(interval=10, type='LoggerHook'),
+    logger=dict(interval=50, type='LoggerHook'),              # Less frequent logging (50 iterations) to clean up output
     param_scheduler=dict(
         lr_factor=0.01,
         max_epochs=max_epochs,
@@ -166,20 +195,28 @@ test_pipeline = [
                     'scale_factor', 'pad_param'))
 ]
 
-test_dataloader = dict(batch_size=24,
-                        dataset=dict(type='YOLOv5CocoDataset',
-                        metainfo=dict(classes=class_names),  # Full 102 classes for evaluation
-                        data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
-                        ann_file=train_json,
-                        data_prefix=dict(img=''),
-                        filter_cfg=dict(filter_empty_gt=False, min_size=32),
-                        pipeline=test_pipeline)
-                       )
+test_dataloader = dict(
+    _delete_=True,
+    batch_size=24,
+    num_workers=4,                         # Parallel data loading to improve speed
+    persistent_workers=True,
+    drop_last=False,
+    sampler=dict(type='DefaultSampler', shuffle=False),
+    dataset=dict(type='YOLOv5CocoDataset',
+                 metainfo=dict(classes=class_names),  # Evaluate on all 102 classes like original MOWOD
+                 data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
+                 ann_file=test_json,
+                 data_prefix=dict(img=''),
+                 filter_cfg=dict(filter_empty_gt=True, min_size=32),
+                 pipeline=test_pipeline)
+)
 
 test_evaluator = dict(_delete_=True,
                       type='OWODEvaluator',
+                      prefix='coco',                         # Explicitly define prefix for monitoring
                       cfg=dict(
                          dataset_root='data/IP102/voc/',
+                         ann_file=test_json,
                          file_name='mowod/all_task_test.txt',
                          prev_intro_cls=prev_intro_cls,
                          cur_intro_cls=cur_intro_cls,
@@ -187,6 +224,35 @@ test_evaluator = dict(_delete_=True,
                          class_names=class_names
                       )
                      )
-val_evaluator = test_evaluator
-val_dataloader = test_dataloader
+val_json = '/kaggle/input/datasets/eljazouly/ip102-coco-annotations/coco_annotations/val.json'
+
+val_dataloader = dict(
+    _delete_=True,
+    batch_size=24,
+    num_workers=4,
+    persistent_workers=True,
+    drop_last=False,
+    sampler=dict(type='DefaultSampler', shuffle=False),
+    dataset=dict(type='YOLOv5CocoDataset',
+                 metainfo=dict(classes=class_names),
+                 data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
+                 ann_file=val_json,
+                 data_prefix=dict(img=''),
+                 filter_cfg=dict(filter_empty_gt=True, min_size=32),
+                 pipeline=test_pipeline)
+)
+
+val_evaluator = dict(_delete_=True,
+                      type='OWODEvaluator',
+                      prefix='coco',
+                      cfg=dict(
+                         dataset_root='data/IP102/voc_val/',
+                         ann_file=val_json,
+                         file_name='mowod/all_task_val.txt',
+                         prev_intro_cls=prev_intro_cls,
+                         cur_intro_cls=cur_intro_cls,
+                         unknown_id=102,
+                         class_names=class_names
+                      )
+                     )
 find_unused_parameters = True
