@@ -94,7 +94,7 @@ model = dict(type='OurDetector',
                            frozen_stages=4,
                            with_text_model=False),
              neck=dict(type='YOLOWorldPAFPN',
-                       freeze_all=True,              # Frozen neck to run like original MOWOD and speed up
+                       freeze_all=False,              # Frozen neck to run like original MOWOD and speed up
                        guide_channels=text_channels,
                        embed_channels=neck_embed_channels,
                        num_heads=neck_num_heads,
@@ -110,7 +110,7 @@ model = dict(type='OurDetector',
                             top_k=top_k,
                             head_module=dict(
                                 type='OurHeadModule',
-                                freeze_all=True,     # Frozen head module to run like original MOWOD and speed up
+                                freeze_all=False,     # Frozen head module to run like original MOWOD and speed up
                                 use_bn_head=True,
                                 embed_dims=text_channels,
                                 num_classes=num_training_classes,),),
