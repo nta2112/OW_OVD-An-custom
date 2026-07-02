@@ -151,7 +151,7 @@ custom_hooks = [
 
 default_hooks = dict(
     checkpoint=dict(
-        interval=save_epoch_intervals, max_keep_ckpts=2, save_best='Known AP50', rule='greater',
+        interval=save_epoch_intervals, max_keep_ckpts=2, save_best='coco/Known AP50', rule='greater',
         type='CheckpointHook'),
     logger=dict(interval=50, type='LoggerHook'),              # Less frequent logging (50 iterations) to clean up output
     param_scheduler=dict(
