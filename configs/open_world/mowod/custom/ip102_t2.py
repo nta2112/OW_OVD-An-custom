@@ -124,7 +124,7 @@ coco_train_dataset = dict(
         dataset=dict(
             type='YOLOv5CocoDataset',
             metainfo=dict(classes=class_names[:52]),  # Learn the first 52 classes (t1 + t2)
-            data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
+            data_root='/tmp/ip02-dataset/classification/',
             ann_file=train_json,
             data_prefix=dict(img=''),
             filter_cfg=dict(filter_empty_gt=True, min_size=32)),
@@ -134,6 +134,7 @@ coco_train_dataset = dict(
 train_dataloader = dict(persistent_workers=persistent_workers,
                         batch_size=train_batch_size_per_gpu,
                         num_workers=4,                         # Parallel data loading to improve speed
+                        pin_memory=True,
                         collate_fn=dict(type='yolow_collate'),
                         dataset=coco_train_dataset)
 
@@ -200,11 +201,12 @@ test_dataloader = dict(
     batch_size=24,
     num_workers=4,                         # Parallel data loading to improve speed
     persistent_workers=True,
+    pin_memory=True,
     drop_last=False,
     sampler=dict(type='DefaultSampler', shuffle=False),
     dataset=dict(type='YOLOv5CocoDataset',
                  metainfo=dict(classes=class_names),  # Evaluate on all 102 classes like original MOWOD
-                 data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
+                 data_root='/tmp/ip02-dataset/classification/',
                  ann_file=test_json,
                  data_prefix=dict(img=''),
                  filter_cfg=dict(filter_empty_gt=True, min_size=32),
@@ -231,11 +233,12 @@ val_dataloader = dict(
     batch_size=24,
     num_workers=4,
     persistent_workers=True,
+    pin_memory=True,
     drop_last=False,
     sampler=dict(type='DefaultSampler', shuffle=False),
     dataset=dict(type='YOLOv5CocoDataset',
                  metainfo=dict(classes=class_names),
-                 data_root='/kaggle/input/datasets/rtlmhjbn/ip02-dataset/classification/',
+                 data_root='/tmp/ip02-dataset/classification/',
                  ann_file=val_json,
                  data_prefix=dict(img=''),
                  filter_cfg=dict(filter_empty_gt=True, min_size=32),
