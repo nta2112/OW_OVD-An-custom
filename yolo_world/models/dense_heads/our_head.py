@@ -270,6 +270,7 @@ class OurHead(YOLOv8Head):
                     prev_distribution=None,
                     distributions=None,
                     top_k=10,
+                    select_all_attr=False,
                     *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.thr = thr
@@ -284,6 +285,7 @@ class OurHead(YOLOv8Head):
         self.cur_intro_cls = cur_intro_cls
         self.prev_distribution = prev_distribution
         self.top_k = top_k
+        self.select_all_attr = select_all_attr
         self.load_att_embeddings(att_embeddings)
 
     @property
@@ -522,7 +524,12 @@ class OurHead(YOLOv8Head):
         Select attributes based on a balance of distribution similarity and attribute diversity.
         Optimized for speed by avoiding redundant calculations and using batch operations.
         """
-        
+        if getattr(self, 'select_all_attr', False):
+            all_atts = self.all_atts.to(self.att_embeddings.device)
+            self.att_embeddings = torch.nn.Parameter(all_atts).to(self.att_embeddings.device)
+            print(f'Using all attributes (select_all_attr=True), total: {len(self.texts)}.')
+            return
+            
         print(f'thr: {self.thr}')
         # save_root = os.path.dirname(self.distributions)
         # task_id = self.distributions[-5]
