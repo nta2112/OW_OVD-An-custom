@@ -66,7 +66,7 @@ neck_embed_channels = [128, 256, _base_.last_stage_out_channels // 2]
 neck_num_heads = [4, 8, _base_.last_stage_out_channels // 2 // 32]
 base_lr = 1e-4
 weight_decay = 0.05
-train_batch_size_per_gpu = 24
+train_batch_size_per_gpu = 8
 load_from = 'pretrained_models/yolo_world_v2_l_obj365v1_goldg_pretrain-a82b1fe3.pth'
 persistent_workers = True
 
