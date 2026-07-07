@@ -271,6 +271,7 @@ class OurHead(YOLOv8Head):
                     distributions=None,
                     top_k=10,
                     select_all_attr=False,
+                    use_ood_prob=False,
                     *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.thr = thr
@@ -286,6 +287,7 @@ class OurHead(YOLOv8Head):
         self.prev_distribution = prev_distribution
         self.top_k = top_k
         self.select_all_attr = select_all_attr
+        self.use_ood_prob = use_ood_prob
         self.load_att_embeddings(att_embeddings)
 
     @property
@@ -455,6 +457,24 @@ class OurHead(YOLOv8Head):
         known_predictions = outs[0]
         unknown_predictions = self(img_feats, att_embeddings)[0]
         ret_logits = []
+
+        if getattr(self, 'use_ood_prob', False):
+            # Configuration 3: All attr + OOD Prob
+            # P_b computed on all attributes (taking mean)
+            # P_u = P_b * (1 - max(P_C))
+            # No Entropy uncertainty, no top-k selection, using all attributes
+            for known_logits, unknown_logits in zip(known_predictions, unknown_predictions):
+                known_logits = known_logits.sigmoid().permute(0, 2, 3, 1)
+                unknown_logits = unknown_logits.sigmoid().permute(0, 2, 3, 1)
+                
+                P_b = unknown_logits.mean(dim=-1, keepdim=True)
+                max_P_C = known_logits.max(dim=-1, keepdim=True)[0]
+                ood_gate = 1.0 - max_P_C
+                P_u = P_b * ood_gate
+                
+                logits = torch.cat([known_logits, P_u], dim=-1).permute(0, 3, 1, 2)
+                ret_logits.append(logits)
+            return (ret_logits, *outs[1:])
 
         for known_logits, unknown_logits in zip(known_predictions, unknown_predictions):
             known_logits = known_logits.sigmoid().permute(0, 2, 3, 1)
