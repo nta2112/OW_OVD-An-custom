@@ -4,6 +4,7 @@ from .FOMO import FOMO
 from .UMB import UMB
 from .FOMOnoBN import FOMOnoBN
 from .Our import OurDetector
+from .yolo_world_gt import YOLOWorldGTDetector
 
 __all__ = ['YOLOWorldDetector', 'SimpleYOLOWorldDetector', 
-           'FOMO', 'UMB', 'FOMOnoBN', 'OurDetector']
+           'FOMO', 'UMB', 'FOMOnoBN', 'OurDetector', 'YOLOWorldGTDetector']
