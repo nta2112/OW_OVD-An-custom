@@ -272,6 +272,7 @@ class OurHead(YOLOv8Head):
                     top_k=10,
                     select_all_attr=False,
                     use_ood_prob=False,
+                    selected_att_path=None,
                     *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.thr = thr
@@ -288,6 +289,7 @@ class OurHead(YOLOv8Head):
         self.top_k = top_k
         self.select_all_attr = select_all_attr
         self.use_ood_prob = use_ood_prob
+        self.selected_att_path = selected_att_path
         self.load_att_embeddings(att_embeddings)
 
     @property
@@ -541,8 +543,8 @@ class OurHead(YOLOv8Head):
 
     def select_att(self, per_class=25):
         """
-        Select attributes based on a balance of distribution similarity and attribute diversity.
-        Optimized for speed by avoiding redundant calculations and using batch operations.
+        Select attributes purely based on Jensen-Shannon Divergence (JSD) - Equation 5.
+        Adheres to Ablation study constraints (no similarity restriction, no beta, no inter-attribute cosine similarity).
         """
         if getattr(self, 'select_all_attr', False):
             all_atts = self.all_atts.to(self.att_embeddings.device)
@@ -551,77 +553,83 @@ class OurHead(YOLOv8Head):
             return
             
         print(f'thr: {self.thr}')
-        # save_root = os.path.dirname(self.distributions)
-        # task_id = self.distributions[-5]
-        # if not os.path.exists(save_root):
-        #     os.makedirs(save_root)
-        # torch.save({'positive_distributions': self.positive_distributions,
-        #             'negative_distributions': self.negative_distributions}, os.path.join(save_root, f'current{task_id}.pth'))
-        # print('save current to {}'.format(os.path.join(save_root, f'current{task_id}.pth')))
-        # self.positive_distributions, self.negative_distributions = self.combine_distributions()
-
-        # torch.save({'positive_distributions': self.positive_distributions,
-        #             'negative_distributions': self.negative_distributions}, self.distributions)
-        # print('save distributions to {}'.format(self.distributions))
         
-        distributions = torch.load(self.distributions, map_location=self.device)
-        self.positive_distributions, self.negative_distributions = distributions['positive_distributions'], distributions['negative_distributions']
-        
-        thr_id = self.thrs.index(self.thr)                                                            
-        # Step 1: Calculate distribution similarity for each attribute (JS divergence)
-        distribution_sim = self.get_all_dis_sim(self.positive_distributions[thr_id], self.negative_distributions[thr_id])
-        # Step 2: Prepare for batch cosine similarity calculation
-        # Precompute the cosine similarities for all attribute pairs in one batch
-        all_atts = self.all_atts.to(self.att_embeddings.device)
-        
-        att_embeddings_norm = F.normalize(all_atts, p=2, dim=1)  # Normalize embeddings
-        if self.use_sigmoid:
-            cosine_sim_matrix = torch.matmul(att_embeddings_norm, att_embeddings_norm.T).sigmoid() 
-        else:
-            cosine_sim_matrix = torch.matmul(att_embeddings_norm, att_embeddings_norm.T).abs()
-        
-        # Initialize selected indices
-        selected_indices = []
-        
-        # Step 3: Attribute selection loop
-        for _ in range(per_class * self.num_classes):
-            if len(selected_indices) == 0:
-                # Select the first attribute with the lowest distribution similarity
-                _, idx = distribution_sim.min(dim=0)
+        # Load distributions if they are not in memory (e.g. testing)
+        if self.positive_distributions is None:
+            if self.distributions is not None and os.path.exists(self.distributions):
+                distributions = torch.load(self.distributions, map_location=self.device)
+                self.positive_distributions = distributions['positive_distributions']
+                self.negative_distributions = distributions['negative_distributions']
+                print(f'Loaded distributions from {self.distributions}')
             else:
-                # Step 4: Calculate diversity score for each unselected attribute
-                # Get the mean cosine similarity between unselected and selected attributes
-                unselected_indices = list(set(range(len(self.texts))) - set(selected_indices))
-                cosine_sim_with_selected = cosine_sim_matrix[unselected_indices][:, selected_indices].mean(dim=1)  # Shape: (num_unselected,)
-                
-                # Calculate final score: balance distribution similarity and diversity (cosine similarity)
-                distribution_sim_unselected = distribution_sim[unselected_indices]
-                score = self.alpha * distribution_sim_unselected + (1 - self.alpha) * cosine_sim_with_selected
-                
-                # Select the attribute with the lowest score
-                idx = unselected_indices[score.argmin()]
-            
-            selected_indices.append(idx)
+                raise ValueError("Both in-memory distributions and distributions file path are unavailable.")
+        else:
+            # Save the currently collected distributions to self.distributions if path is specified
+            if self.distributions is not None:
+                save_root = os.path.dirname(self.distributions)
+                if save_root and not os.path.exists(save_root):
+                    os.makedirs(save_root, exist_ok=True)
+                torch.save({
+                    'positive_distributions': self.positive_distributions,
+                    'negative_distributions': self.negative_distributions
+                }, self.distributions)
+                print(f'Saved collected distributions to {self.distributions}')
+
+        thr_id = self.thrs.index(self.thr)
+        positive_dis = self.positive_distributions[thr_id]
+        negative_dis = self.negative_distributions[thr_id]
         
-        # Step 5: Update selected attributes and their embeddings
-        selected_indices = torch.tensor(selected_indices).to(self.att_embeddings.device)
-        self.att_embeddings = torch.nn.Parameter(all_atts[selected_indices]).to(self.att_embeddings.device)
-        self.texts = [self.texts[i] for i in selected_indices]
-                     
-        print('Selected attributes saved.')
+        # Calculate JSD for each attribute using get_all_dis_sim
+        distribution_sim = self.get_all_dis_sim(positive_dis, negative_dis)
+        
+        # Select attributes with the lowest JSD values (pure JSD-based selection)
+        num_to_select = min(per_class * self.num_classes, len(distribution_sim))
+        _, selected_indices = torch.topk(distribution_sim, num_to_select, largest=False)
+        selected_indices = selected_indices.to(self.att_embeddings.device)
+        
+        selected_texts = [self.texts[i] for i in selected_indices.tolist()]
+        all_atts = self.all_atts.to(self.att_embeddings.device)
+        selected_embeddings = all_atts[selected_indices]
+        
+        # Save selected attributes to selected_att_path
+        selected_path = getattr(self, 'selected_att_path', None)
+        if selected_path is None:
+            selected_path = 'data/IP102/selected_att_embeddings.pth'
+            
+        save_dir = os.path.dirname(selected_path)
+        if save_dir and not os.path.exists(save_dir):
+            os.makedirs(save_dir, exist_ok=True)
+            
+        torch.save({
+            'att_text': selected_texts,
+            'att_embedding': selected_embeddings.cpu()
+        }, selected_path)
+        print(f'Selected {len(selected_texts)} attributes with lowest JSD. Saved to {selected_path}')
+        
+        # Update self.att_embeddings and self.texts in-place for inference/test
+        self.att_embeddings = torch.nn.Parameter(selected_embeddings)
+        self.texts = selected_texts
   
     def get_sim(self, a, b):
         """
-            return distribution a and b similarity. lower value means more similar
+        Calculates Jensen-Shannon Divergence safely.
         """
-        def jensen_shannon_divergence(p, q):
-            m = 0.5 * (p + q)
-            m = m.clamp(min=1e-6)
-            js_div = 0.5 * (torch.sum(p * torch.log((p / m).clamp(min=1e-6))) +
-                            torch.sum(q * torch.log((q / m).clamp(min=1e-6))))
-            return js_div
-
-        return jensen_shannon_divergence(a, b)
+        p_sum = a.sum()
+        q_sum = b.sum()
+        p = a / (p_sum if p_sum > 0 else 1.0)
+        q = b / (q_sum if q_sum > 0 else 1.0)
+        
+        m = 0.5 * (p + q)
+        kl_pm = torch.zeros_like(p)
+        kl_qm = torch.zeros_like(q)
+        
+        mask_p = p > 0
+        mask_q = q > 0
+        
+        kl_pm[mask_p] = p[mask_p] * torch.log((p[mask_p] + 1e-12) / (m[mask_p] + 1e-12))
+        kl_qm[mask_q] = q[mask_q] * torch.log((q[mask_q] + 1e-12) / (m[mask_q] + 1e-12))
+        
+        return 0.5 * (kl_pm.sum() + kl_qm.sum())
             
     def aug_test(self,
                  aug_batch_feats,
