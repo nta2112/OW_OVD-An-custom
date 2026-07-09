@@ -1,4 +1,4 @@
-# Copyright (c) Tencent Inc. All rights reserved.
+﻿# Copyright (c) Tencent Inc. All rights reserved.
 import math
 import copy
 from typing import List, Optional, Tuple, Union, Sequence
@@ -272,6 +272,7 @@ class OurHead(YOLOv8Head):
                     top_k=10,
                     select_all_attr=False,
                     use_ood_prob=False,
+                    use_known_uncertainty=False,
                     use_similarity_restriction=False,
                     sim_restr_beta=1.0,
                     selected_att_path=None,
@@ -291,9 +292,12 @@ class OurHead(YOLOv8Head):
         self.top_k = top_k
         self.select_all_attr = select_all_attr
         self.use_ood_prob = use_ood_prob
+        self.use_known_uncertainty = use_known_uncertainty
         self.use_similarity_restriction = use_similarity_restriction
         self.sim_restr_beta = sim_restr_beta
         self.selected_att_path = selected_att_path
+        self.positive_distributions = None
+        self.negative_distributions = None
         self.load_att_embeddings(att_embeddings)
 
     @property
@@ -465,10 +469,9 @@ class OurHead(YOLOv8Head):
         ret_logits = []
 
         if getattr(self, 'use_ood_prob', False):
-            # Configuration 3: All attr + OOD Prob
-            # P_b computed on all attributes (taking mean)
-            # P_u = P_b * (1 - max(P_C))
-            # No Entropy uncertainty, no top-k selection, using all attributes
+            # Ablation path: P_b is the mean score over the selected attributes.
+            # Optional known-class uncertainty keeps the OOD gate and does not use
+            # top-k attribute selection.
             for known_logits, unknown_logits in zip(known_predictions, unknown_predictions):
                 known_logits = known_logits.sigmoid().permute(0, 2, 3, 1)
                 unknown_logits = unknown_logits.sigmoid().permute(0, 2, 3, 1)
@@ -476,7 +479,11 @@ class OurHead(YOLOv8Head):
                 P_b = unknown_logits.mean(dim=-1, keepdim=True)
                 max_P_C = known_logits.max(dim=-1, keepdim=True)[0]
                 ood_gate = 1.0 - max_P_C
-                P_u = P_b * ood_gate
+                if getattr(self, 'use_known_uncertainty', False):
+                    P_un = self.calculate_uncertainty(known_logits)
+                    P_u = 0.5 * (P_b + P_un) * ood_gate
+                else:
+                    P_u = P_b * ood_gate
                 
                 logits = torch.cat([known_logits, P_u], dim=-1).permute(0, 3, 1, 2)
                 ret_logits.append(logits)
