@@ -1,4 +1,4 @@
-_base_ = './ip102_t1_all_attr_ood.py'
+_base_ = './ip102_t1_all_attr.py'
 
 model = dict(
     bbox_head=dict(
