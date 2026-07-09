@@ -272,6 +272,8 @@ class OurHead(YOLOv8Head):
                     top_k=10,
                     select_all_attr=False,
                     use_ood_prob=False,
+                    use_similarity_restriction=False,
+                    sim_restr_beta=1.0,
                     selected_att_path=None,
                     *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -289,6 +291,8 @@ class OurHead(YOLOv8Head):
         self.top_k = top_k
         self.select_all_attr = select_all_attr
         self.use_ood_prob = use_ood_prob
+        self.use_similarity_restriction = use_similarity_restriction
+        self.sim_restr_beta = sim_restr_beta
         self.selected_att_path = selected_att_path
         self.load_att_embeddings(att_embeddings)
 
@@ -542,10 +546,7 @@ class OurHead(YOLOv8Head):
         return ret_pos, ret_neg
 
     def select_att(self, per_class=25):
-        """
-        Select attributes purely based on Jensen-Shannon Divergence (JSD) - Equation 5.
-        Adheres to Ablation study constraints (no similarity restriction, no beta, no inter-attribute cosine similarity).
-        """
+        """Select attributes with Equation (5) or Equation (6) greedy search."""
         if getattr(self, 'select_all_attr', False):
             all_atts = self.all_atts.to(self.att_embeddings.device)
             self.att_embeddings = torch.nn.Parameter(all_atts).to(self.att_embeddings.device)
@@ -581,10 +582,37 @@ class OurHead(YOLOv8Head):
         
         # Calculate JSD for each attribute using get_all_dis_sim
         distribution_sim = self.get_all_dis_sim(positive_dis, negative_dis)
-        
-        # Select attributes with the lowest JSD values (pure JSD-based selection)
         num_to_select = min(per_class * self.num_classes, len(distribution_sim))
-        _, selected_indices = torch.topk(distribution_sim, num_to_select, largest=False)
+
+        if self.use_similarity_restriction:
+            all_atts = self.all_atts.to(self.att_embeddings.device).float()
+            normalized_atts = F.normalize(all_atts, dim=1, p=2)
+            cosine_sim = normalized_atts @ normalized_atts.t()
+
+            beta = float(self.sim_restr_beta)
+            beta = min(max(beta, 0.0), 1.0)
+            base_score = beta * distribution_sim.to(self.att_embeddings.device)
+            penalty_sum = torch.zeros_like(base_score)
+            selected_count = 0
+            selected_mask = torch.zeros(base_score.shape[0], dtype=torch.bool, device=base_score.device)
+            selected_indices = []
+
+            for _ in range(num_to_select):
+                penalty = penalty_sum / max(selected_count, 1)
+                score = base_score + (1.0 - beta) * penalty
+                score[selected_mask] = float('inf')
+                next_idx = torch.argmin(score)
+                selected_indices.append(next_idx)
+                selected_mask[next_idx] = True
+                penalty_sum = penalty_sum + torch.sigmoid(cosine_sim[:, next_idx])
+                selected_count += 1
+
+            selected_indices = torch.stack(selected_indices)
+            print(f'Selected {num_to_select} attributes with greedy Sim restr (beta={beta}).')
+        else:
+            # Equation 5 baseline: select attributes with lowest JSD only.
+            _, selected_indices = torch.topk(distribution_sim, num_to_select, largest=False)
+
         selected_indices = selected_indices.to(self.att_embeddings.device)
         
         selected_texts = [self.texts[i] for i in selected_indices.tolist()]
@@ -604,7 +632,7 @@ class OurHead(YOLOv8Head):
             'att_text': selected_texts,
             'att_embedding': selected_embeddings.cpu()
         }, selected_path)
-        print(f'Selected {len(selected_texts)} attributes with lowest JSD. Saved to {selected_path}')
+        print(f'Selected {len(selected_texts)} attributes. Saved to {selected_path}')
         
         # Update self.att_embeddings and self.texts in-place for inference/test
         self.att_embeddings = torch.nn.Parameter(selected_embeddings)
