@@ -516,8 +516,6 @@ class OurHead(YOLOv8Head):
         for i in range(len(positive_dis)):
             positive = positive_dis[i]
             negative = negative_dis[i]
-            positive = positive / positive.sum()
-            negative = negative / negative.sum()
             dis_sim.append(self.get_sim(positive, negative))
         # (num_attributes,)
         return torch.stack(dis_sim).to(self.device)
