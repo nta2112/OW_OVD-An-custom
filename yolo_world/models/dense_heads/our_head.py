@@ -275,6 +275,7 @@ class OurHead(YOLOv8Head):
                     use_known_uncertainty=False,
                     use_similarity_restriction=False,
                     sim_restr_beta=1.0,
+                    attr_sel_for_known_only: bool = False,
                     selected_att_path=None,
                     *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -284,7 +285,6 @@ class OurHead(YOLOv8Head):
         self.alpha = alpha
         self.use_sigmoid = use_sigmoid
         self.distributions = distributions
-        # self.thrs = [t/100.0 for t in range(50, 100, 5)]
         self.thrs = [thr]
         self.prev_intro_cls = prev_intro_cls
         self.cur_intro_cls = cur_intro_cls
@@ -296,9 +296,16 @@ class OurHead(YOLOv8Head):
         self.use_similarity_restriction = use_similarity_restriction
         self.sim_restr_beta = sim_restr_beta
         self.selected_att_path = selected_att_path
+        self.attr_sel_for_known_only = attr_sel_for_known_only
         self.positive_distributions = None
         self.negative_distributions = None
+
+        if att_embeddings is None and selected_att_path is not None:
+            att_embeddings = selected_att_path
         self.load_att_embeddings(att_embeddings)
+# ...existing code...
+        if self.att_embeddings is None:
+            self.select_att()
 
     @property
     def device(self):
@@ -428,7 +435,10 @@ class OurHead(YOLOv8Head):
             att_feats = txt_feats[:, -num_att: , :]
             txt_feats = txt_feats[:, :-num_att, :]
         else:
-            att_feats = self.att_embeddings[None].repeat(txt_feats.shape[0], 1, 1)
+            if self.attr_sel_for_known_only:
+                att_feats = self.all_atts[None].repeat(txt_feats.shape[0], 1, 1)
+            else:
+                att_feats = self.att_embeddings[None].repeat(txt_feats.shape[0], 1, 1)
         
         if self.att_embeddings is not None:
             outs = self.predict_unknown(outs, img_feats, att_feats)
