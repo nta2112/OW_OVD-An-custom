@@ -48,6 +48,8 @@ class ContrastiveHead(BaseModule):
     def forward(self, x: Tensor, w: Tensor) -> Tensor:
         """Forward function of contrastive learning."""
         x = F.normalize(x, dim=1, p=2)
+        if w.device != x.device:
+            w = w.to(x.device)
         w = F.normalize(w, dim=-1, p=2)
 
         if self.use_einsum:
@@ -91,6 +93,8 @@ class BNContrastiveHead(BaseModule):
     def forward(self, x: Tensor, w: Tensor) -> Tensor:
         """Forward function of contrastive learning."""
         x = self.norm(x)
+        if w.device != x.device:
+            w = w.to(x.device)
         w = F.normalize(w, dim=-1, p=2)
 
         if self.use_einsum:
@@ -329,13 +333,14 @@ class OurHead(YOLOv8Head):
             return
         atts = torch.load(att_embeddings)
         self.texts = atts['att_text']
-        self.all_atts = atts['att_embedding']
+        device = next(self.parameters()).device if any(True for _ in self.parameters()) else torch.device(self._device)
+        self.all_atts = atts['att_embedding'].float().to(device)
         if self.prev_distribution is not None:
             # todo this
-            prev_atts_num = len(torch.load(self.prev_distribution, map_location=self.device)['positive_distributions'][self.thrs.index(self.thr)])
+            prev_atts_num = len(torch.load(self.prev_distribution, map_location=device)['positive_distributions'][self.thrs.index(self.thr)])
         else:
             prev_atts_num = 0
-        self.att_embeddings = torch.nn.Parameter(atts['att_embedding'].float()[prev_atts_num:])
+        self.att_embeddings = torch.nn.Parameter(self.all_atts[prev_atts_num:].contiguous())
         # self.att_embeddings = torch.nn.Parameter(torch.zeros(1000, 512).float())
         
     def reset_log(self, intetval=0.0001):
