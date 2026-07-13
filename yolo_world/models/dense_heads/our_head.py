@@ -1,4 +1,4 @@
-﻿# Copyright (c) Tencent Inc. All rights reserved.
+# Copyright (c) Tencent Inc. All rights reserved.
 import math
 import copy
 from typing import List, Optional, Tuple, Union, Sequence
@@ -492,13 +492,19 @@ class OurHead(YOLOv8Head):
                 unknown_logits = unknown_logits.sigmoid().permute(0, 2, 3, 1)
                 
                 P_b = unknown_logits.mean(dim=-1, keepdim=True)
+                
+                # Scale P_b to compensate for dilution over a large number of attributes
+                num_attributes = unknown_logits.shape[-1]
+                scale_factor = num_attributes / getattr(self, 'top_k', 10)
+                P_b_scaled = torch.clamp(P_b * scale_factor, 0.0, 1.0)
+                
                 max_P_C = known_logits.max(dim=-1, keepdim=True)[0]
                 ood_gate = 1.0 - max_P_C
                 if getattr(self, 'use_known_uncertainty', False):
                     P_un = self.calculate_uncertainty(known_logits)
-                    P_u = 0.5 * (P_b + P_un) * ood_gate
+                    P_u = 0.5 * (P_b_scaled + P_un) * ood_gate
                 else:
-                    P_u = P_b * ood_gate
+                    P_u = P_b_scaled * ood_gate
                 
                 logits = torch.cat([known_logits, P_u], dim=-1).permute(0, 3, 1, 2)
                 ret_logits.append(logits)
