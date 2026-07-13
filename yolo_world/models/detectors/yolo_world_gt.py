@@ -74,11 +74,29 @@ class YOLOWorldGTDetector(YOLODetector):
         img_feats, txt_feats = self.extract_feat(batch_inputs,
                                                  batch_data_samples)
 
+        # 1. Compute raw logits for all 102 classes
         self.bbox_head.num_classes = self.num_test_classes
-        results_list = self.bbox_head.predict(img_feats,
-                                              txt_feats,
-                                              batch_data_samples,
-                                              rescale=rescale)
+        outs = self.bbox_head(img_feats, txt_feats)
+        
+        # 2. Extract known class logits and compute max over unknown class logits
+        cls_logits = outs[0]
+        known_logits = [c[:, :self.num_training_classes, :, :] for c in cls_logits]
+        unknown_logits = [c[:, self.num_training_classes:, :, :] for c in cls_logits]
+        max_unknown_logits = [u.max(dim=1, keepdim=True)[0] for u in unknown_logits]
+        
+        # 3. Concat known class logits with the max unknown logit
+        new_cls_logits = [torch.cat([k, m], dim=1) for k, m in zip(known_logits, max_unknown_logits)]
+        new_outs = (new_cls_logits, *outs[1:])
+        
+        # 4. Run post-processing on 28 classes (27 known + 1 unknown)
+        self.bbox_head.num_classes = self.num_training_classes + 1
+        
+        batch_img_metas = [
+            data_samples.metainfo for data_samples in batch_data_samples
+        ]
+        results_list = self.bbox_head.predict_by_feat(*new_outs,
+                                                      batch_img_metas=batch_img_metas,
+                                                      rescale=rescale)
 
         batch_data_samples = self.add_pred_to_datasample(
             batch_data_samples, results_list)
