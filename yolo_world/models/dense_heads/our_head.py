@@ -483,53 +483,48 @@ class OurHead(YOLOv8Head):
         unknown_predictions = self(img_feats, att_embeddings)[0]
         ret_logits = []
 
+        # Configuration flags
+        use_top_k_att = getattr(self, 'use_top_k_att', True)
+        use_ood_gate = getattr(self, 'use_ood_gate', True)
+        use_known_uncertainty = getattr(self, 'use_known_uncertainty', False)
+
+        # Backward compatibility for use_ood_prob
         if getattr(self, 'use_ood_prob', False):
-            # Ablation path: P_b is the mean score over the selected attributes.
-            # Optional known-class uncertainty keeps the OOD gate and does not use
-            # top-k attribute selection.
-            for known_logits, unknown_logits in zip(known_predictions, unknown_predictions):
-                known_logits = known_logits.sigmoid().permute(0, 2, 3, 1)
-                unknown_logits = unknown_logits.sigmoid().permute(0, 2, 3, 1)
-                
-                P_b = unknown_logits.mean(dim=-1, keepdim=True)
-                
-                # Scale P_b to compensate for dilution over a large number of attributes
-                num_attributes = unknown_logits.shape[-1]
-                scale_factor = num_attributes / getattr(self, 'top_k', 10)
-                P_b_scaled = torch.clamp(P_b * scale_factor, 0.0, 1.0)
-                
-                max_P_C = known_logits.max(dim=-1, keepdim=True)[0]
-                ood_gate = 1.0 - max_P_C
-                if getattr(self, 'use_known_uncertainty', False):
-                    P_un = self.calculate_uncertainty(known_logits)
-                    P_u = 0.5 * (P_b_scaled + P_un) * ood_gate
-                else:
-                    P_u = P_b_scaled * ood_gate
-                
-                logits = torch.cat([known_logits, P_u], dim=-1).permute(0, 3, 1, 2)
-                ret_logits.append(logits)
-            return (ret_logits, *outs[1:])
+            use_top_k_att = False
+            use_ood_gate = True
 
         for known_logits, unknown_logits in zip(known_predictions, unknown_predictions):
             known_logits = known_logits.sigmoid().permute(0, 2, 3, 1)
             unknown_logits = unknown_logits.sigmoid().permute(0, 2, 3, 1)
-
-            # 计算已知类别的不确定性
-            uncertainty = self.calculate_uncertainty(known_logits)
-            # uncertainty = 0
-            # 计算属性不确定性并调整属性权重
-            # top_k_att_score = self.select_top_k_attributes(unknown_logits, k=self.top_k)
-            top_k_att_score = self.compute_weighted_top_k_attributes(unknown_logits, k=self.top_k)
-            #top_k_att_score = unknown_logits.max(dim=-1, keepdim=True)[0]
-            # 融合已知和未知类别的预测
             
-            unknown_logits_final = (top_k_att_score + uncertainty) / 2 * (1 - known_logits.max(-1, keepdim=True)[0])
-            # unknown_logits_final = (top_k_att_score) * (1 - known_logits.max(-1, keepdim=True)[0])
-            
-            # 合并已知和未知类别的最终预测结果
+            # 1. Compute attribute similarity score (Top-K or Mean)
+            if use_top_k_att:
+                att_score = self.compute_weighted_top_k_attributes(unknown_logits, k=self.top_k)
+            else:
+                # Mean over all attributes, scaled to compensate dilution
+                P_b = unknown_logits.mean(dim=-1, keepdim=True)
+                num_attributes = unknown_logits.shape[-1]
+                scale_factor = num_attributes / getattr(self, 'top_k', 10)
+                att_score = torch.clamp(P_b * scale_factor, 0.0, 1.0)
+                
+            # 2. Add known uncertainty if enabled
+            if use_known_uncertainty:
+                uncertainty = self.calculate_uncertainty(known_logits)
+                unknown_score = (att_score + uncertainty) / 2
+            else:
+                unknown_score = att_score
+                
+            # 3. Apply OOD gate if enabled
+            if use_ood_gate:
+                max_P_C = known_logits.max(dim=-1, keepdim=True)[0]
+                ood_gate = 1.0 - max_P_C
+                unknown_logits_final = unknown_score * ood_gate
+            else:
+                unknown_logits_final = unknown_score
+                
             logits = torch.cat([known_logits, unknown_logits_final], dim=-1).permute(0, 3, 1, 2)
             ret_logits.append(logits)
-        
+            
         return (ret_logits, *outs[1:])
 
     def get_all_dis_sim(self, positive_dis, negative_dis):
