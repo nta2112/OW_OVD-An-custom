@@ -281,6 +281,8 @@ class OurHead(YOLOv8Head):
                     sim_restr_beta=1.0,
                     attr_sel_for_known_only: bool = False,
                     selected_att_path=None,
+                    use_top_k_att: bool = True,
+                    use_ood_gate: bool = True,
                     *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.thr = thr
@@ -301,6 +303,8 @@ class OurHead(YOLOv8Head):
         self.sim_restr_beta = sim_restr_beta
         self.selected_att_path = selected_att_path
         self.attr_sel_for_known_only = attr_sel_for_known_only
+        self.use_top_k_att = use_top_k_att
+        self.use_ood_gate = use_ood_gate
         self.positive_distributions = None
         self.negative_distributions = None
 
