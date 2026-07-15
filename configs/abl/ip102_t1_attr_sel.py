@@ -9,3 +9,15 @@ model = dict(
         use_ood_gate=True
     )
 )
+
+custom_hooks = [
+    dict(type='mmdet.PipelineSwitchHook',
+         switch_epoch=0,
+         switch_pipeline=_base_._base_.train_pipeline_stage2),
+    dict(type='OurWorkPiplineHook'),
+    dict(type='EarlyStoppingHook',
+         monitor='coco/Current class AP50',
+         rule='greater',
+         patience=2,
+         min_delta=10.0)
+]
