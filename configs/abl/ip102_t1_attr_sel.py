@@ -10,14 +10,4 @@ model = dict(
     )
 )
 
-custom_hooks = [
-    dict(type='mmdet.PipelineSwitchHook',
-         switch_epoch=0,
-         switch_pipeline=_base_.train_pipeline_stage2),
-    dict(type='OurWorkPiplineHook'),
-    dict(type='EarlyStoppingHook',
-         monitor='coco/Current class AP50',
-         rule='greater',
-         patience=2,
-         min_delta=10.0)
-]
+custom_hooks = [hook for hook in custom_hooks if hook.get('type') != 'EarlyStoppingHook']
