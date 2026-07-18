@@ -169,6 +169,18 @@ def load_model(cfg_path: str, ckpt_path: str, ann_file: Optional[str], device: s
 
     print(f"[demo] Loading model …  cfg={cfg_path}  ckpt={ckpt_path}")
     _model = init_detector(cfg_path, ckpt_path, device=device)
+    
+    # Ép buộc mô hình trả về cả các candidate có score thấp để ta tự lọc thành Unknown trên giao diện
+    try:
+        if hasattr(_model, 'cfg') and _model.cfg is not None:
+            if hasattr(_model.cfg, 'model') and 'bbox_head' in _model.cfg.model:
+                if 'test_cfg' in _model.cfg.model.bbox_head:
+                    _model.cfg.model.bbox_head.test_cfg.score_thr = 0.01
+        if hasattr(_model, 'bbox_head') and hasattr(_model.bbox_head, 'test_cfg'):
+            _model.bbox_head.test_cfg.score_thr = 0.01
+    except Exception as e:
+        print(f"[demo] Warning overriding score_thr: {e}")
+        
     _model.eval()
     print(f"[demo] Model ready. {len(_class_names)} known classes, unknown_id={_unknown_id}")
 
