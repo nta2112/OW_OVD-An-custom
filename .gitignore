@@ -1,0 +1,18 @@
+# Cache Python
+__pycache__/
+*.pyc
+.venv/
+.agents/
+
+# Kaggle / Local temp data
+data/
+pretrained_models/
+
+# Thư mục ablation & visualize theo yêu cầu
+new ablation/
+old ablation/
+visualize/
+
+# Môi trường Conda
+environment_demo.yml
+setup_ow_ovd_env.bat

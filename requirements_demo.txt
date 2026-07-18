@@ -1,0 +1,6 @@
+# OW-OVD Demo - Additional requirements
+# (mmdet, mmcv, mmyolo, torch đã cần cài riêng theo hướng dẫn notebook)
+
+gradio>=4.0.0
+Pillow>=9.0.0
+numpy>=1.23.0
