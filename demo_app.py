@@ -206,40 +206,48 @@ def run_inference(pil_img: Image.Image, score_thr: float):
     scores = pred_instances.scores.cpu().numpy()   # (N,)
     labels = pred_instances.labels.cpu().numpy()   # (N,)
 
-    # Logic gán nhãn Unknown thông minh cho demo:
-    # 1. Các box có score >= score_thr và nhãn >= unknown_id -> vẽ Unknown thực tế từ model.
-    # 2. Các box có score thấp hơn score_thr nhưng vẫn >= 0.01 -> có thể là vật thể lạ (Unknown) mà model phân vân.
-    #    Chúng ta chuyển đổi nhãn của chúng thành Unknown (unknown_id) để vẽ hiển thị.
+    # Logic gán nhãn Unknown thông minh:
+    # 1. Các box có score >= score_thr (thanh kéo): Giữ nguyên Known class (Yellow).
+    # 2. Các box có score < score_thr nhưng vẫn >= 0.05: Có vật thể nhưng độ tin cậy phân loại Known quá thấp.
+    #    Chúng ta ép buộc chuyển nhãn thành Unknown (Red).
     patched_labels = []
     patched_scores = []
     
     for score, label in zip(scores, labels):
-        if score >= score_thr:
+        if score >= score_thr:  # Vượt ngưỡng tin cậy trên giao diện -> Known
             patched_labels.append(label)
             patched_scores.append(score)
-        elif score >= 0.01:  # Có vật thể nhưng độ tin cậy lớp đã biết rất thấp -> Nghi ngờ là Unknown
+        elif score >= 0.05:  # Thấp hơn ngưỡng slider nhưng vẫn là vật thể thực tế -> Chuyển thành Unknown
             patched_labels.append(_unknown_id)
-            patched_scores.append(score)  # Giữ nguyên score thực tế nhưng cho phép hiển thị
-        else:
+            patched_scores.append(score)
+        else:  # Nhiễu nền quá thấp (< 0.05) -> Giữ nguyên để lọc bỏ
             patched_labels.append(label)
             patched_scores.append(score)
             
     patched_labels = np.array(patched_labels)
     patched_scores = np.array(patched_scores)
 
-    # draw
+    # draw (sử dụng patched_scores và patched_labels để hiển thị)
     annotated = draw_boxes(pil_img.copy(), boxes, patched_scores, patched_labels, score_thr)
 
     # build text summary
-    visible = [(b, s, l) for b, s, l in zip(boxes, patched_scores, patched_labels) if s >= score_thr or (l >= _unknown_id and s >= min(score_thr, 0.05))]
+    # Hiển thị các box Known (score >= score_thr) và các box Unknown (score >= 0.05)
+    visible = []
+    for b, s, l in zip(boxes, patched_scores, patched_labels):
+        is_unk = l >= _unknown_id
+        if is_unk and s >= 0.05:
+            visible.append((b, s, l))
+        elif not is_unk and s >= score_thr:
+            visible.append((b, s, l))
+
     if not visible:
         info_text = "Không phát hiện đối tượng nào (thử giảm ngưỡng confidence)."
     else:
         lines = ["**Kết quả phát hiện:**\n"]
         for i, (b, s, l) in enumerate(visible, 1):
-            label_name = _class_names[l] if l < len(_class_names) else "**Unknown**"
             is_unk = l >= _unknown_id
-            tag = "🔴 **Unknown**" if is_unk else f"🟡 {label_name}"
+            label_name = _class_names[l] if l < len(_class_names) else "**Unknown**"
+            tag = "🔴 **Unknown (vật thể lạ)**" if is_unk else f"🟡 {label_name}"
             lines.append(f"{i}. {tag} — confidence: `{s:.2f}`")
         info_text = "\n".join(lines)
 
