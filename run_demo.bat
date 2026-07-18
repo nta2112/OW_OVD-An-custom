@@ -11,8 +11,8 @@ set PYTHONNOUSERSITE=1
 REM Ép buộc mmcv dùng chế độ pure Python không cần C++ extensions
 set MMCV_WITH_OPS=0
 
-set CONFIG=configs/open_world/mowod/custom/ip102_t3.py
-set CHECKPOINT=C:\Users\HP\Downloads\OW-OVD_checkpoint\t3_best.pth
+set CONFIG=configs/open_world/mowod/custom/ip102_t1.py
+set CHECKPOINT=C:\Users\HP\Downloads\OW-OVD_checkpoint\t1_best.pth
 set DEVICE=cpu
 
 REM Nếu có GPU CUDA: set DEVICE=cuda:0
