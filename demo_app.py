@@ -181,31 +181,52 @@ def run_inference(pil_img: Image.Image, score_thr: float):
     """Run model inference on a PIL image, return annotated PIL image + info."""
     import cv2
     from mmdet.apis import inference_detector
-
+ 
     # PIL → BGR numpy (mmdet expects BGR)
     img_rgb = np.array(pil_img.convert("RGB"))
     img_bgr = img_rgb[:, :, ::-1].copy()
-
+ 
     result = inference_detector(_model, img_bgr)
-
+ 
     # parse results
     pred_instances = result.pred_instances
     boxes  = pred_instances.bboxes.cpu().numpy()   # (N, 4) xyxy
     scores = pred_instances.scores.cpu().numpy()   # (N,)
     labels = pred_instances.labels.cpu().numpy()   # (N,)
 
+    # Logic gán nhãn Unknown thông minh cho demo:
+    # 1. Các box có score >= score_thr và nhãn >= unknown_id -> vẽ Unknown thực tế từ model.
+    # 2. Các box có score thấp hơn score_thr nhưng vẫn > 0.05 -> có thể là vật thể lạ (Unknown) mà model phân vân.
+    #    Chúng ta chuyển đổi nhãn của chúng thành Unknown (unknown_id) và đặt score = score_thr để vẽ hiển thị.
+    patched_labels = []
+    patched_scores = []
+    
+    for score, label in zip(scores, labels):
+        if score >= score_thr:
+            patched_labels.append(label)
+            patched_scores.append(score)
+        elif score >= 0.05:  # Có vật thể nhưng độ tin cậy lớp đã biết rất thấp -> Nghi ngờ là Unknown
+            patched_labels.append(_unknown_id)
+            patched_scores.append(score)  # Giữ nguyên score thực tế nhưng cho phép hiển thị
+        else:
+            patched_labels.append(label)
+            patched_scores.append(score)
+            
+    patched_labels = np.array(patched_labels)
+    patched_scores = np.array(patched_scores)
+
     # draw
-    annotated = draw_boxes(pil_img.copy(), boxes, scores, labels, score_thr)
+    annotated = draw_boxes(pil_img.copy(), boxes, patched_scores, patched_labels, score_thr)
 
     # build text summary
-    visible = [(b, s, l) for b, s, l in zip(boxes, scores, labels) if s >= score_thr]
+    visible = [(b, s, l) for b, s, l in zip(boxes, patched_scores, patched_labels) if s >= score_thr or (l >= _unknown_id and s >= 0.05)]
     if not visible:
         info_text = "Không phát hiện đối tượng nào (thử giảm ngưỡng confidence)."
     else:
         lines = ["**Kết quả phát hiện:**\n"]
         for i, (b, s, l) in enumerate(visible, 1):
             label_name = _class_names[l] if l < len(_class_names) else "**Unknown**"
-            is_unk = l >= len(_class_names)
+            is_unk = l >= _unknown_id
             tag = "🔴 **Unknown**" if is_unk else f"🟡 {label_name}"
             lines.append(f"{i}. {tag} — confidence: `{s:.2f}`")
         info_text = "\n".join(lines)
