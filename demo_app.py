@@ -262,11 +262,18 @@ def draw_boxes(img: Image.Image, boxes, scores, labels, score_thr):
         font_bold = font
 
     for box, score, label in zip(boxes, scores, labels):
-        if score < score_thr:
-            continue
+        is_unknown = int(label) >= len(_class_names)
+        
+        # Nếu là Unknown: chỉ cần score >= 0.05 để hiển thị vật thể lạ
+        # Nếu là Known: bắt buộc phải >= score_thr (thanh kéo slider)
+        if is_unknown:
+            if score < 0.05:
+                continue
+        else:
+            if score < score_thr:
+                continue
 
         x1, y1, x2, y2 = box
-        is_unknown = int(label) >= len(_class_names)
         color = UNKNOWN_COLOR if is_unknown else KNOWN_COLOR
 
         # box outline (thick)
