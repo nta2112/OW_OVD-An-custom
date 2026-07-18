@@ -208,8 +208,8 @@ def run_inference(pil_img: Image.Image, score_thr: float):
 
     # Logic gán nhãn Unknown thông minh cho demo:
     # 1. Các box có score >= score_thr và nhãn >= unknown_id -> vẽ Unknown thực tế từ model.
-    # 2. Các box có score thấp hơn score_thr nhưng vẫn > 0.05 -> có thể là vật thể lạ (Unknown) mà model phân vân.
-    #    Chúng ta chuyển đổi nhãn của chúng thành Unknown (unknown_id) và đặt score = score_thr để vẽ hiển thị.
+    # 2. Các box có score thấp hơn score_thr nhưng vẫn >= 0.01 -> có thể là vật thể lạ (Unknown) mà model phân vân.
+    #    Chúng ta chuyển đổi nhãn của chúng thành Unknown (unknown_id) để vẽ hiển thị.
     patched_labels = []
     patched_scores = []
     
@@ -217,7 +217,7 @@ def run_inference(pil_img: Image.Image, score_thr: float):
         if score >= score_thr:
             patched_labels.append(label)
             patched_scores.append(score)
-        elif score >= 0.05:  # Có vật thể nhưng độ tin cậy lớp đã biết rất thấp -> Nghi ngờ là Unknown
+        elif score >= 0.01:  # Có vật thể nhưng độ tin cậy lớp đã biết rất thấp -> Nghi ngờ là Unknown
             patched_labels.append(_unknown_id)
             patched_scores.append(score)  # Giữ nguyên score thực tế nhưng cho phép hiển thị
         else:
@@ -231,7 +231,7 @@ def run_inference(pil_img: Image.Image, score_thr: float):
     annotated = draw_boxes(pil_img.copy(), boxes, patched_scores, patched_labels, score_thr)
 
     # build text summary
-    visible = [(b, s, l) for b, s, l in zip(boxes, patched_scores, patched_labels) if s >= score_thr or (l >= _unknown_id and s >= 0.05)]
+    visible = [(b, s, l) for b, s, l in zip(boxes, patched_scores, patched_labels) if s >= score_thr or (l >= _unknown_id and s >= min(score_thr, 0.05))]
     if not visible:
         info_text = "Không phát hiện đối tượng nào (thử giảm ngưỡng confidence)."
     else:
@@ -264,10 +264,10 @@ def draw_boxes(img: Image.Image, boxes, scores, labels, score_thr):
     for box, score, label in zip(boxes, scores, labels):
         is_unknown = int(label) >= len(_class_names)
         
-        # Nếu là Unknown: chỉ cần score >= 0.05 để hiển thị vật thể lạ
-        # Nếu là Known: bắt buộc phải >= score_thr (thanh kéo slider)
+        # Nếu là Unknown: vẽ nếu score >= min(score_thr, 0.05) để tránh bị ẩn khi kéo slider xuống thấp
+        # Nếu là Known: bắt buộc phải >= score_thr
         if is_unknown:
-            if score < 0.05:
+            if score < min(score_thr, 0.05):
                 continue
         else:
             if score < score_thr:
