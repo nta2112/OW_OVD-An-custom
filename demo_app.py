@@ -86,22 +86,31 @@ def load_model(cfg_path: str, ckpt_path: str, ann_file: Optional[str], device: s
     global _model, _class_names, _unknown_id, _device
 
     # mock mmcv._ext to avoid ModuleNotFoundError in mmcv-lite (pure Python)
-    import types
     import sys
-    import importlib.machinery
-    if 'mmcv._ext' not in sys.modules:
-        class MockModule(types.ModuleType):
-            def __getattr__(self, name):
-                if name.startswith('__'):
-                    raise AttributeError(name)
-                def dummy_func(*args, **kwargs):
-                    raise NotImplementedError(
-                        f"This C++ operation '{name}' is not compiled or supported on pure Python MMCV CPU."
-                    )
-                return dummy_func
-        mock_ext = MockModule('mmcv._ext')
-        mock_ext.__spec__ = importlib.machinery.ModuleSpec('mmcv._ext', None)
-        sys.modules['mmcv._ext'] = mock_ext
+    try:
+        import mmcv._ext
+        print("[demo] Compiled mmcv._ext is available. Using compiled C++ ops.")
+    except ImportError:
+        print("[demo] Compiled mmcv._ext not found. Using pure Python mock fallback with torchvision ops.")
+        import types
+        import importlib.machinery
+        if 'mmcv._ext' not in sys.modules:
+            class MockModule(types.ModuleType):
+                def __getattr__(self, name):
+                    if name.startswith('__'):
+                        raise AttributeError(name)
+                    # If NMS is requested, fallback to torchvision's CPU implementation which is compiled and fast
+                    if name == 'nms':
+                        import torchvision.ops as tv_ops
+                        return tv_ops.nms
+                    def dummy_func(*args, **kwargs):
+                        raise NotImplementedError(
+                            f"This C++ operation '{name}' is not compiled or supported on pure Python MMCV CPU."
+                        )
+                    return dummy_func
+            mock_ext = MockModule('mmcv._ext')
+            mock_ext.__spec__ = importlib.machinery.ModuleSpec('mmcv._ext', None)
+            sys.modules['mmcv._ext'] = mock_ext
 
     # Patch mmengine Config.fromfile to automatically redirect third_party/mmyolo config paths
     import mmengine
