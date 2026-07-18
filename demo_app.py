@@ -88,6 +88,7 @@ def load_model(cfg_path: str, ckpt_path: str, ann_file: Optional[str], device: s
     # mock mmcv._ext to avoid ModuleNotFoundError in mmcv-lite (pure Python)
     import types
     import sys
+    import importlib.machinery
     if 'mmcv._ext' not in sys.modules:
         class MockModule(types.ModuleType):
             def __getattr__(self, name):
@@ -99,6 +100,7 @@ def load_model(cfg_path: str, ckpt_path: str, ann_file: Optional[str], device: s
                     )
                 return dummy_func
         mock_ext = MockModule('mmcv._ext')
+        mock_ext.__spec__ = importlib.machinery.ModuleSpec('mmcv._ext', None)
         sys.modules['mmcv._ext'] = mock_ext
 
     # Patch mmengine Config.fromfile to automatically redirect third_party/mmyolo config paths
