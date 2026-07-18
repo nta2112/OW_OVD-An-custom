@@ -351,7 +351,11 @@ _THEME = gr.themes.Base(
 )
 
 def create_ui():
-    with gr.Blocks(title="OW-OVD Pest Detection Demo") as demo:
+    with gr.Blocks(
+        title="OW-OVD Pest Detection Demo",
+        theme=_THEME,
+        css=CSS,
+    ) as demo:
 
         # ── Header ──────────────────────────────────────────────────────────
         gr.HTML("""
@@ -475,6 +479,4 @@ if __name__ == "__main__":
         share=args.share,
         show_error=True,
         inbrowser=True,
-        theme=_THEME,
-        css=CSS,
     )
