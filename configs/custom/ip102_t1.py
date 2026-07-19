@@ -58,8 +58,14 @@ if dataset_root is None:
 train_json = os.path.join(dataset_root, 'train.json')
 test_json = os.path.join(dataset_root, 'test.json')
 val_json = os.path.join(dataset_root, 'val.json')
-image_data_root = os.path.join(dataset_root, 'VOC2007/JPEGImages/')
-if not os.path.exists(image_data_root):
+
+# Tự động quét tìm thư mục thực sự chứa ảnh .jpg để tránh FileNotFoundError
+image_data_root = None
+for root, dirs, files in os.walk(dataset_root):
+    if any(f.lower().endswith('.jpg') for f in files):
+        image_data_root = root
+        break
+if image_data_root is None:
     image_data_root = dataset_root
 
 # Dynamically load class names from IP102 annotations
