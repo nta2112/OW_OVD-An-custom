@@ -52,6 +52,12 @@ for path in [
 if class_names is None:
     class_names = ['14', '15', '16', '18', '22', '23', '24', '25', '26', '37', '38', '39', '45', '46', '47', '48', '49', '50', '51', '66', '67', '69', '70', '86', '101']
 
+# Clean up temporary variables to avoid deepcopy / pickle TypeError (cannot pickle 'TextIOWrapper' instances)
+try:
+    del json, os, path, f, coco_data, categories
+except Exception:
+    pass
+
 # open world setting
 prev_intro_cls = 7
 cur_intro_cls = 6
