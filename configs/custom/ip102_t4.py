@@ -31,38 +31,59 @@ try:
 except Exception:
     pass
 
-# Dynamically load class names from IP102 annotations
-import json
+# Tự động tìm đường dẫn dataset trên Kaggle
+import glob
 import os
-class_names = None
+import json
+
+dataset_root = None
 for path in [
-    '/kaggle/input/datasets/nta212/ip102-for-object-detection/train.json',
-    'train.json'
+    '/kaggle/input/datasets/nta212/ip102-for-object-detection',
+    '/kaggle/input/ip102-for-object-detection',
+    'data/IP102',
+    '.'
 ]:
-    if os.path.exists(path):
-        try:
-            with open(path, 'r') as f:
-                coco_data = json.load(f)
-            categories = sorted(coco_data['categories'], key=lambda x: x['id'])
-            class_names = [cat['name'] for cat in categories]
-            break
-        except Exception:
-            pass
+    if os.path.exists(os.path.join(path, 'train.json')):
+        dataset_root = path
+        break
+
+if dataset_root is None:
+    paths = glob.glob('/kaggle/input/**/train.json', recursive=True)
+    if paths:
+        dataset_root = os.path.dirname(paths[0])
+
+if dataset_root is None:
+    dataset_root = '.'  # Fallback local path
+
+train_json = os.path.join(dataset_root, 'train.json')
+test_json = os.path.join(dataset_root, 'test.json')
+val_json = os.path.join(dataset_root, 'val.json')
+image_data_root = os.path.join(dataset_root, 'VOC2007/JPEGImages/')
+if not os.path.exists(image_data_root):
+    image_data_root = dataset_root
+
+# Dynamically load class names from IP102 annotations
+class_names = None
+try:
+    with open(train_json, 'r') as f:
+        coco_data = json.load(f)
+    categories = sorted(coco_data['categories'], key=lambda x: x['id'])
+    class_names = [cat['name'] for cat in categories]
+except Exception:
+    pass
 
 if class_names is None:
     class_names = ['14', '15', '16', '18', '22', '23', '24', '25', '26', '37', '38', '39', '45', '46', '47', '48', '49', '50', '51', '66', '67', '69', '70', '86', '101']
 
 # Clean up temporary variables to avoid deepcopy / pickle TypeError (cannot pickle 'TextIOWrapper' instances)
 try:
-    del json, os, path, f, coco_data, categories
+    del json, os, glob, path, paths, f, coco_data, categories
 except Exception:
     pass
 
 # open world setting
 prev_intro_cls = 19
 cur_intro_cls = 6
-train_json = '/kaggle/input/datasets/nta212/ip102-for-object-detection/train.json'
-test_json = '/kaggle/input/datasets/nta212/ip102-for-object-detection/test.json'
 embedding_path = 'data/IP102/ip102_gt_embeddings.npy'
 att_embeddings = 'data/IP102/task_att_1_embeddings.pth'
 pipline = [dict(type='att_select', log_start_epoch=1)]
@@ -134,7 +155,7 @@ coco_train_dataset = dict(
         dataset=dict(
             type='YOLOv5CocoDataset',
             metainfo=dict(classes=class_names[:25]),  # Learn classes up to T4
-            data_root='/kaggle/input/datasets/nta212/ip102-for-object-detection/VOC2007/JPEGImages/',
+            data_root=image_data_root,
             ann_file=train_json,
             data_prefix=dict(img=''),
             filter_cfg=dict(filter_empty_gt=True, min_size=32)),
@@ -216,7 +237,7 @@ test_dataloader = dict(
     sampler=dict(type='DefaultSampler', shuffle=False),
     dataset=dict(type='YOLOv5CocoDataset',
                  metainfo=dict(classes=class_names),  # Evaluate on all 25 classes
-                 data_root='/kaggle/input/datasets/nta212/ip102-for-object-detection/VOC2007/JPEGImages/',
+                 data_root=image_data_root,
                  ann_file=test_json,
                  data_prefix=dict(img=''),
                  filter_cfg=dict(filter_empty_gt=True, min_size=32),
@@ -236,8 +257,6 @@ test_evaluator = dict(_delete_=True,
                          class_names=class_names
                       )
                      )
-val_json = '/kaggle/input/datasets/nta212/ip102-for-object-detection/val.json'
-
 val_dataloader = dict(
     _delete_=True,
     batch_size=24,
@@ -248,7 +267,7 @@ val_dataloader = dict(
     sampler=dict(type='DefaultSampler', shuffle=False),
     dataset=dict(type='YOLOv5CocoDataset',
                  metainfo=dict(classes=class_names),
-                 data_root='/kaggle/input/datasets/nta212/ip102-for-object-detection/VOC2007/JPEGImages/',
+                 data_root=image_data_root,
                  ann_file=val_json,
                  data_prefix=dict(img=''),
                  filter_cfg=dict(filter_empty_gt=True, min_size=32),
