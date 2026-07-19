@@ -75,11 +75,6 @@ except Exception:
 if class_names is None:
     class_names = ['14', '15', '16', '18', '22', '23', '24', '25', '26', '37', '38', '39', '45', '46', '47', '48', '49', '50', '51', '66', '67', '69', '70', '86', '101']
 
-# Clean up temporary variables to avoid deepcopy / pickle TypeError (cannot pickle 'TextIOWrapper' instances)
-try:
-    del json, os, glob, path, paths, f, coco_data, categories
-except Exception:
-    pass
 
 # open world setting
 prev_intro_cls = 7
@@ -288,3 +283,8 @@ val_evaluator = dict(_delete_=True,
                       )
                      )
 find_unused_parameters = True
+
+# Clean up all temporary variables from config namespace to avoid deepcopy/pickle errors (e.g. TextIOWrapper)
+for var in ['json', 'os', 'glob', 'path', 'paths', 'f', 'coco_data', 'categories', 'dataset_root', 'train_json', 'test_json', 'val_json', 'image_data_root']:
+    globals().pop(var, None)
+
