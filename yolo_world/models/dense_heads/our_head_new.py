@@ -522,11 +522,8 @@ class OurHead(YOLOv8Head):
             if use_top_k_att:
                 att_score = self.compute_weighted_top_k_attributes(unknown_logits, k=self.top_k)
             else:
-                # Mean over all attributes, scaled to compensate dilution
-                P_b = unknown_logits.mean(dim=-1, keepdim=True)
-                num_attributes = unknown_logits.shape[-1]
-                scale_factor = num_attributes / getattr(self, 'top_k', 10)
-                att_score = torch.clamp(P_b * scale_factor, 0.0, 1.0)
+                # Baseline: use the maximum score across all attributes to represent the unknown class
+                att_score = unknown_logits.max(dim=-1, keepdim=True)[0]
                 
             # 2. Add known uncertainty if enabled
             if use_known_uncertainty:
