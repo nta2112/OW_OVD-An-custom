@@ -286,6 +286,24 @@ class OurHead(YOLOv8Head):
         self.top_k = top_k
         self.load_att_embeddings(att_embeddings)
 
+    def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
+                              missing_keys, unexpected_keys, error_msgs):
+        key = prefix + 'att_embeddings'
+        if key in state_dict:
+            checkpoint_shape = state_dict[key].shape
+            if self.att_embeddings is not None and self.att_embeddings.shape != checkpoint_shape:
+                print(f"[OurHead] Dynamically resizing self.att_embeddings from {self.att_embeddings.shape} to {checkpoint_shape} to match checkpoint.")
+                self.att_embeddings = torch.nn.Parameter(
+                    torch.zeros(checkpoint_shape, dtype=self.att_embeddings.dtype, device=self.att_embeddings.device)
+                )
+            elif self.att_embeddings is None:
+                device = next(self.parameters()).device if any(True for _ in self.parameters()) else torch.device(self._device)
+                self.att_embeddings = torch.nn.Parameter(
+                    torch.zeros(checkpoint_shape, dtype=torch.float32, device=device)
+                )
+        super()._load_from_state_dict(state_dict, prefix, local_metadata, strict,
+                                      missing_keys, unexpected_keys, error_msgs)
+
     @property
     def device(self):
         for param in self.parameters():
