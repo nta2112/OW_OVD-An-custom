@@ -140,6 +140,7 @@ model = dict(type='OurDetector',
                             prev_intro_cls=prev_intro_cls,
                             cur_intro_cls=cur_intro_cls,
                             top_k=top_k,
+                            use_known_uncertainty=True,
                             head_module=dict(
                                 type='OurHeadModule',
                                 freeze_all=False,     # Frozen head module to run like original MOWOD and speed up
