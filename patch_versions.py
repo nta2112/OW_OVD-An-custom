@@ -45,6 +45,16 @@ def _patch_package(pkg_name: str, new_ceiling: str = "2.3.0") -> bool:
         print(f"[patch_versions] {pkg_name}: 'mmcv_maximum_version' not found in file.")
         return False
 
+    # Evict pycache on disk
+    import shutil
+    pycache_dir = os.path.join(os.path.dirname(init_file), "__pycache__")
+    if os.path.exists(pycache_dir):
+        try:
+            shutil.rmtree(pycache_dir)
+            print(f"[patch_versions] {pkg_name}: Evicted stale pycache directory.")
+        except Exception as e:
+            print(f"[patch_versions] {pkg_name}: Failed to evict pycache directory: {e}")
+
     if new_src == src:
         print(f"[patch_versions] {pkg_name}: ceiling is already '{new_ceiling}'. No patch needed.")
         return True
