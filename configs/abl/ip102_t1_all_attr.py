@@ -1,4 +1,4 @@
-_base_ = '../open_world/mowod/custom/ip102_t1.py'
+_base_ = '../custom/ip102_t1.py'
 
 train_batch_size_per_gpu = 24
 

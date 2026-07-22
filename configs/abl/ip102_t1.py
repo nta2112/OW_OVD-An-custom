@@ -82,13 +82,13 @@ if class_names is None:
 
 # open world setting
 prev_intro_cls = 0
-cur_intro_cls = 27
+cur_intro_cls = 7
 embedding_path = 'data/IP102/ip102_gt_embeddings.npy'
 
 # yolo world setting
-num_classes = 27
-num_training_classes = 27
-num_test_classes = 102
+num_classes = 7
+num_training_classes = 7
+num_test_classes = 25
 max_epochs = 10
 close_mosaic_epochs = max_epochs
 save_epoch_intervals = 1
@@ -138,7 +138,7 @@ coco_train_dataset = dict(
         type='MultiModalDataset',
         dataset=dict(
             type='YOLOv5CocoDataset',
-            metainfo=dict(classes=class_names[:27]),  # Learn the first 27 classes for T1
+            metainfo=dict(classes=class_names[:7]),  # Learn the first 7 classes for T1
             data_root=image_data_root,
             ann_file=train_json,
             data_prefix=dict(img=''),
@@ -235,7 +235,7 @@ test_evaluator = dict(_delete_=True,
                          file_name='mowod/all_task_test.txt',
                          prev_intro_cls=prev_intro_cls,
                          cur_intro_cls=cur_intro_cls,
-                         unknown_id=102,
+                         unknown_id=25,
                          class_names=class_names
                       )
                      )
@@ -267,7 +267,7 @@ val_evaluator = dict(_delete_=True,
                          file_name='mowod/all_task_val.txt',
                          prev_intro_cls=prev_intro_cls,
                          cur_intro_cls=cur_intro_cls,
-                         unknown_id=102,
+                         unknown_id=25,
                          class_names=class_names
                       )
                      )
