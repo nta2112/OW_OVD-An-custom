@@ -522,8 +522,8 @@ class OurHead(YOLOv8Head):
             if use_top_k_att:
                 att_score = self.compute_weighted_top_k_attributes(unknown_logits, k=self.top_k)
             else:
-                # Baseline: use the maximum score across all attributes to represent the unknown class
-                att_score = unknown_logits.max(dim=-1, keepdim=True)[0]
+                # Baseline: use the simple average (mean) of all attributes to represent the unknown class
+                att_score = unknown_logits.mean(dim=-1, keepdim=True)
                 
             # 2. Add known uncertainty if enabled
             if use_known_uncertainty:

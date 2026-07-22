@@ -15,6 +15,7 @@ import sys
 import importlib
 import importlib.util
 import re
+import os
 
 
 def _patch_package(pkg_name: str, new_ceiling: str = "2.3.0") -> bool:
