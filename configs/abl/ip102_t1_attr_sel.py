@@ -10,4 +10,4 @@ model = dict(
     )
 )
 
-custom_hooks = [hook for hook in custom_hooks if hook.get('type') != 'EarlyStoppingHook']
+custom_hooks = [hook for hook in _base_.custom_hooks if hook.get('type') != 'EarlyStoppingHook']
