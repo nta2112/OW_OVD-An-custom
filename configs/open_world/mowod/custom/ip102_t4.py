@@ -31,28 +31,59 @@ try:
 except Exception:
     pass
 
-# Dynamically load class names from IP102 annotations on Kaggle
+# Tự động tìm đường dẫn dataset trên Kaggle
+import glob
+import os
 import json
+
+dataset_root = None
+for path in [
+    '/kaggle/input/datasets/nta212/ip102-for-object-detection',
+    '/kaggle/input/ip102-for-object-detection',
+    'data/IP102',
+    '.'
+]:
+    if os.path.exists(os.path.join(path, 'train.json')):
+        dataset_root = path
+        break
+
+if dataset_root is None:
+    paths = glob.glob('/kaggle/input/**/train.json', recursive=True)
+    if paths:
+        dataset_root = os.path.dirname(paths[0])
+
+if dataset_root is None:
+    dataset_root = '.'  # Fallback local path
+
+train_json = os.path.join(dataset_root, 'train.json')
+test_json = os.path.join(dataset_root, 'test.json')
+val_json = os.path.join(dataset_root, 'val.json')
+
+# Tự động quét tìm thư mục thực sự chứa ảnh .jpg để tránh FileNotFoundError
+image_data_root = None
+for root, dirs, files in os.walk(dataset_root):
+    if any(f.lower().endswith('.jpg') for f in files):
+        image_data_root = root
+        break
+if image_data_root is None:
+    image_data_root = dataset_root
+
+# Dynamically load class names from IP102 annotations
+class_names = None
 try:
-    with open('/kaggle/input/datasets/nta212/ip102-for-object-detection/train.json', 'r') as f:
+    with open(train_json, 'r') as f:
         coco_data = json.load(f)
     categories = sorted(coco_data['categories'], key=lambda x: x['id'])
     class_names = [cat['name'] for cat in categories]
-    del f, coco_data, categories
 except Exception:
-    # Fallback placeholder list for local validation
+    pass
+
+if class_names is None:
     class_names = [f"pest_{i}" for i in range(102)]
-finally:
-    try:
-        del json
-    except NameError:
-        pass
 
 # open world setting
 prev_intro_cls = 77
 cur_intro_cls = 25
-train_json = '/kaggle/input/datasets/nta212/ip102-for-object-detection/train.json'
-test_json = '/kaggle/input/datasets/nta212/ip102-for-object-detection/test.json'
 embedding_path = 'data/IP102/ip102_gt_embeddings.npy'
 att_embeddings = 'data/IP102/task_att_1_embeddings.pth'
 pipline = [dict(type='att_select', log_start_epoch=1)]
@@ -124,7 +155,7 @@ coco_train_dataset = dict(
         dataset=dict(
             type='YOLOv5CocoDataset',
             metainfo=dict(classes=class_names),       # Learn all 102 classes in T4
-            data_root='/tmp/ip02-dataset/classification/',
+            data_root=image_data_root,
             ann_file=train_json,
             data_prefix=dict(img=''),
             filter_cfg=dict(filter_empty_gt=True, min_size=32)),
@@ -206,7 +237,7 @@ test_dataloader = dict(
     sampler=dict(type='DefaultSampler', shuffle=False),
     dataset=dict(type='YOLOv5CocoDataset',
                  metainfo=dict(classes=class_names),  # Evaluate on all 102 classes like original MOWOD
-                 data_root='/tmp/ip02-dataset/classification/',
+                 data_root=image_data_root,
                  ann_file=test_json,
                  data_prefix=dict(img=''),
                  filter_cfg=dict(filter_empty_gt=True, min_size=32),
@@ -238,7 +269,7 @@ val_dataloader = dict(
     sampler=dict(type='DefaultSampler', shuffle=False),
     dataset=dict(type='YOLOv5CocoDataset',
                  metainfo=dict(classes=class_names),
-                 data_root='/tmp/ip02-dataset/classification/',
+                 data_root=image_data_root,
                  ann_file=val_json,
                  data_prefix=dict(img=''),
                  filter_cfg=dict(filter_empty_gt=True, min_size=32),
@@ -259,3 +290,7 @@ val_evaluator = dict(_delete_=True,
                       )
                      )
 find_unused_parameters = True
+
+# Clean up all temporary variables from config namespace to avoid deepcopy/pickle errors (e.g. TextIOWrapper)
+for var in ['json', 'os', 'glob', 'path', 'paths', 'f', 'coco_data', 'categories', 'dataset_root', 'train_json', 'test_json', 'val_json', 'image_data_root']:
+    globals().pop(var, None)
