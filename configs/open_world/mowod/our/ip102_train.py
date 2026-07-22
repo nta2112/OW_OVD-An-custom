@@ -12,7 +12,7 @@ except Exception:
 # Dynamically load class names from IP102 annotations on Kaggle
 import json
 try:
-    with open('/kaggle/input/datasets/eljazouly/ip102-coco-annotations/coco_annotations/train.json', 'r') as f:
+    with open('/kaggle/input/datasets/nta212/ip102-for-object-detection/train.json', 'r') as f:
         coco_data = json.load(f)
     categories = sorted(coco_data['categories'], key=lambda x: x['id'])
     class_names = [cat['name'] for cat in categories]
@@ -29,7 +29,7 @@ finally:
 # open world setting
 prev_intro_cls = 0
 cur_intro_cls = len(class_names)
-train_json = '/kaggle/input/datasets/eljazouly/ip102-coco-annotations/coco_annotations/train.json'
+train_json = '/kaggle/input/datasets/nta212/ip102-for-object-detection/train.json'
 embedding_path = 'data/IP102/ip102_gt_embeddings.npy'
 att_embeddings = 'data/IP102/task_att_1_embeddings.pth'
 pipline = [dict(type='att_select', log_start_epoch=1)]

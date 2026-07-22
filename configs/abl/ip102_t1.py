@@ -33,7 +33,7 @@ except Exception:
 # Dynamically load class names from IP102 annotations on Kaggle
 import json
 try:
-    with open('/kaggle/input/datasets/eljazouly/ip102-coco-annotations/coco_annotations/train.json', 'r') as f:
+    with open('/kaggle/input/datasets/nta212/ip102-for-object-detection/train.json', 'r') as f:
         coco_data = json.load(f)
     categories = sorted(coco_data['categories'], key=lambda x: x['id'])
     class_names = [cat['name'] for cat in categories]
@@ -50,8 +50,8 @@ finally:
 # open world setting
 prev_intro_cls = 0
 cur_intro_cls = 27
-train_json = '/kaggle/input/datasets/eljazouly/ip102-coco-annotations/coco_annotations/train.json'
-test_json = '/kaggle/input/datasets/eljazouly/ip102-coco-annotations/coco_annotations/test.json'
+train_json = '/kaggle/input/datasets/nta212/ip102-for-object-detection/train.json'
+test_json = '/kaggle/input/datasets/nta212/ip102-for-object-detection/test.json'
 embedding_path = 'data/IP102/ip102_gt_embeddings.npy'
 
 # yolo world setting
@@ -208,7 +208,7 @@ test_evaluator = dict(_delete_=True,
                          class_names=class_names
                       )
                      )
-val_json = '/kaggle/input/datasets/eljazouly/ip102-coco-annotations/coco_annotations/val.json'
+val_json = '/kaggle/input/datasets/nta212/ip102-for-object-detection/val.json'
 
 val_dataloader = dict(
     _delete_=True,
