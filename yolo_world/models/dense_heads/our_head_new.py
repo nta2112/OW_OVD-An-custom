@@ -311,7 +311,6 @@ class OurHead(YOLOv8Head):
         if att_embeddings is None and selected_att_path is not None:
             att_embeddings = selected_att_path
         self.load_att_embeddings(att_embeddings)
-# ...existing code...
         if self.att_embeddings is None:
             self.select_att()
 

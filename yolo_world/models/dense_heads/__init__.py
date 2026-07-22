@@ -4,7 +4,7 @@ from .yolo_world_seg_head import YOLOWorldSegHead, YOLOWorldSegHeadModule
 from .fomo_head import FOMOHead, FOMOHeadModule
 from .umb_head import UMBHead, UMBHeadModule
 from .fomo_nobn_head import FOMOnoBNHead, FOMOnoBNHeadModule
-from .our_head import OurHead, OurHeadModule
+from .our_head_new import OurHead, OurHeadModule
 
 __all__ = [
     'YOLOWorldHead', 'YOLOWorldHeadModule', 'YOLOWorldSegHead',
