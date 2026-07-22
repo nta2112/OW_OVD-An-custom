@@ -14,9 +14,10 @@ After running, the patched modules will be freshly imported.
 import sys
 import importlib
 import importlib.util
+import re
 
 
-def _patch_package(pkg_name: str, old_ceiling: str, new_ceiling: str = "2.3.0") -> bool:
+def _patch_package(pkg_name: str, new_ceiling: str = "2.3.0") -> bool:
     """Return True if the file was patched."""
     spec = importlib.util.find_spec(pkg_name)
     if spec is None or not spec.origin:
@@ -24,34 +25,40 @@ def _patch_package(pkg_name: str, old_ceiling: str, new_ceiling: str = "2.3.0") 
         return False
 
     init_file = spec.origin
+    print(f"[patch_versions] Found {pkg_name} at: {init_file}")
+
     with open(init_file, "r", encoding="utf-8") as f:
         src = f.read()
 
-    old_str = f"mmcv_maximum_version = '{old_ceiling}'"
-    new_str = f"mmcv_maximum_version = '{new_ceiling}'"
-
-    if old_str not in src:
-        print(f"[patch_versions] {pkg_name}: ceiling '{old_ceiling}' not found – already patched or different version.")
+    # Regex pattern to match mmcv_maximum_version = '...' or "..."
+    # Allowing spaces around =
+    pattern = r"(mmcv_maximum_version\s*=\s*['\"])([^'\"]+)(['\"])"
+    match = re.search(pattern, src)
+    if not match:
+        print(f"[patch_versions] {pkg_name}: 'mmcv_maximum_version' not found in file.")
         return False
 
-    src = src.replace(old_str, new_str)
-    with open(init_file, "w", encoding="utf-8") as f:
-        f.write(src)
+    current_ceiling = match.group(2)
+    if current_ceiling == new_ceiling:
+        print(f"[patch_versions] {pkg_name}: ceiling is already '{new_ceiling}'. No patch needed.")
+        return True
 
-    print(f"[patch_versions] {pkg_name}: patched ceiling {old_ceiling!r} -> {new_ceiling!r}  ({init_file})")
+    # Perform regex replacement
+    new_src = re.sub(pattern, rf"\g<1>{new_ceiling}\g<3>", src)
+    with open(init_file, "w", encoding="utf-8") as f:
+        f.write(new_src)
+
+    print(f"[patch_versions] {pkg_name}: successfully patched ceiling '{current_ceiling}' -> '{new_ceiling}'")
     return True
 
 
-# ── Patch both mmyolo and mmdet ──────────────────────────────────────────────
-_patch_package("mmyolo", old_ceiling="2.1.0")   # mmyolo default ceiling
-_patch_package("mmyolo", old_ceiling="2.2.0")   # in case a newer mmyolo wheel ships 2.2.0
-_patch_package("mmdet",  old_ceiling="2.2.0")   # mmdet sometimes has this ceiling
-_patch_package("mmdet",  old_ceiling="2.1.0")
+print("[patch_versions] Starting robust regex patch...")
+_patch_package("mmyolo")
+_patch_package("mmdet")
 
-# ── Evict stale cached modules so fresh import picks up the patch ─────────────
+# Evict cached modules
 _stale = [m for m in sys.modules if m.split(".")[0] in ("mmcv", "mmdet", "mmyolo", "mmengine")]
 for _mod in _stale:
     del sys.modules[_mod]
 
-print("[patch_versions] Evicted stale modules:", _stale or "(none)")
 print("[patch_versions] Done. You can now safely import mmcv / mmyolo / mmdet.")
