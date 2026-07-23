@@ -283,6 +283,7 @@ class OurHead(YOLOv8Head):
                     selected_att_path=None,
                     use_top_k_att: bool = True,
                     use_ood_gate: bool = True,
+                    use_scale_factor: bool = True,
                     *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.thr = thr
@@ -305,6 +306,7 @@ class OurHead(YOLOv8Head):
         self.attr_sel_for_known_only = attr_sel_for_known_only
         self.use_top_k_att = use_top_k_att
         self.use_ood_gate = use_ood_gate
+        self.use_scale_factor = use_scale_factor
         self.positive_distributions = None
         self.negative_distributions = None
 
@@ -524,9 +526,12 @@ class OurHead(YOLOv8Head):
             else:
                 # Mean over all attributes, scaled to compensate dilution
                 P_b = unknown_logits.mean(dim=-1, keepdim=True)
-                num_attributes = unknown_logits.shape[-1]
-                scale_factor = num_attributes / getattr(self, 'top_k', 10)
-                att_score = torch.clamp(P_b * scale_factor, 0.0, 1.0)
+                if getattr(self, 'use_scale_factor', True):
+                    num_attributes = unknown_logits.shape[-1]
+                    scale_factor = num_attributes / getattr(self, 'top_k', 10)
+                    att_score = torch.clamp(P_b * scale_factor, 0.0, 1.0)
+                else:
+                    att_score = P_b
                 
             # 2. Add known uncertainty if enabled
             if use_known_uncertainty:
