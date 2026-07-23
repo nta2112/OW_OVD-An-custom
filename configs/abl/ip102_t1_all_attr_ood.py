@@ -11,3 +11,13 @@ model = dict(
         use_known_uncertainty=False
     )
 )
+
+custom_hooks = []
+for hook in _base_.custom_hooks:
+    if hook.get('type') == 'EarlyStoppingHook':
+        new_hook = hook.copy()
+        new_hook['patience'] = 1
+        new_hook['min_delta'] = 5.0
+        custom_hooks.append(new_hook)
+    else:
+        custom_hooks.append(hook)

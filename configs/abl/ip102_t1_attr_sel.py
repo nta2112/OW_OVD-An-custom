@@ -11,5 +11,3 @@ model = dict(
         use_known_uncertainty=False
     )
 )
-
-custom_hooks = [hook for hook in _base_.custom_hooks if hook.get('type') != 'EarlyStoppingHook']
