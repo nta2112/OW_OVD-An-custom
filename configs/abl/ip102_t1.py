@@ -161,7 +161,7 @@ custom_hooks = [
          monitor='coco/Current class AP50',
          rule='greater',
          patience=2,
-         min_delta=5.0)
+         min_delta=0.001)
 ]
 
 default_hooks = dict(
