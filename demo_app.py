@@ -291,7 +291,7 @@ def draw_boxes(img: Image.Image, boxes, scores, labels, score_thr):
 
         # label text
         label_str = "Unknown" if is_unknown else _class_names[int(label)]
-        text = f"{label_str}  {score:.0%}"
+        text = label_str
 
         # text background
         bbox_text = font.getbbox(text)
