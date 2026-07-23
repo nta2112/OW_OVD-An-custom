@@ -6,6 +6,7 @@ model = dict(
     bbox_head=dict(
         select_all_attr=True,
         use_top_k_att=False,
-        use_ood_gate=False
+        use_ood_gate=False,
+        use_known_uncertainty=False
     )
 )

@@ -6,7 +6,9 @@ model = dict(
         selected_att_path='data/IP102/selected_att_embeddings.pth',
         attr_sel_for_known_only=False,
         use_top_k_att=False,
-        use_ood_gate=True
+        use_ood_gate=True,
+        use_ood_prob=False,
+        use_known_uncertainty=False
     )
 )
 

@@ -7,6 +7,7 @@ model = dict(
         select_all_attr=True,
         use_top_k_att=False,
         use_ood_gate=True,
-        use_ood_prob=True
+        use_ood_prob=True,
+        use_known_uncertainty=False
     )
 )

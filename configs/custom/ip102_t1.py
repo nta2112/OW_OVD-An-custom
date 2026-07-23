@@ -141,6 +141,9 @@ model = dict(type='OurDetector',
                             cur_intro_cls=cur_intro_cls,
                             top_k=top_k,
                             use_known_uncertainty=True,
+                            use_similarity_restriction=True,
+                            sim_restr_beta=0.2,
+                            selected_att_path='data/IP102/selected_att_embeddings_sim_restr.pth',
                             head_module=dict(
                                 type='OurHeadModule',
                                 freeze_all=False,     # Frozen head module to run like original MOWOD and speed up
