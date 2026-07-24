@@ -35,10 +35,13 @@ pip install -q --no-build-isolation --no-deps third_party/mmyolo
 python patch_versions.py
 ```
 ## Training
+```bash
 !PYTHONPATH=. torchrun --nproc_per_node=2 third_party/mmyolo/tools/train.py configs/custom/ip102_t1.py --launcher pytorch
+```
 ## Testing
+```bash
 !PYTHONPATH=. python third_party/mmyolo/tools/test.py configs/custom/ip102_t1.py "best_model_path"
-
+```
 ## Run the demo
 
 Start the demo with the launcher or call the app directly.
