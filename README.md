@@ -2,7 +2,7 @@
 
 This repository is a customized OW-OVD workspace for open-world pest detection. It was pulled from the original author repository and adapted for local experiments, demo runs, ablation studies, and notebook-based evaluation.
 
-The repo centers on a Gradio demo, MMYOLO-based configs, and a set of notebooks/scripts used to run and visualize open-world detection experiments on pest datasets such as IP102.
+The repo centers on a Gradio demo, MMYOLO-based configs, and a set of notebooks/scripts used to run and visualize open-world detection experiments on pest datasets such as [IP102](https://github.com/xpwu95/IP102).
 
 ## Requirements
 
