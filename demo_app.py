@@ -229,7 +229,7 @@ def class_agnostic_nms(boxes, scores, labels, iou_threshold=0.45):
     return boxes[keep], scores[keep], labels[keep]
 
 
-def run_inference(pil_img: Image.Image, score_thr: float, iou_thr: float):
+def run_inference(pil_img: Image.Image, score_thr: float, iou_thr: float, show_labels: bool):
     """Run model inference on a PIL image, return annotated PIL image + info."""
     import cv2
     from mmdet.apis import inference_detector
@@ -271,7 +271,7 @@ def run_inference(pil_img: Image.Image, score_thr: float, iou_thr: float):
     patched_scores = np.array(patched_scores)
 
     # draw (sử dụng patched_scores và patched_labels để hiển thị)
-    annotated = draw_boxes(pil_img.copy(), boxes, patched_scores, patched_labels, score_thr)
+    annotated = draw_boxes(pil_img.copy(), boxes, patched_scores, patched_labels, score_thr, show_labels)
 
     # build text summary
     # Hiển thị các box Known (score >= score_thr) và các box Unknown (score >= 0.05)
@@ -297,7 +297,7 @@ def run_inference(pil_img: Image.Image, score_thr: float, iou_thr: float):
     return annotated, info_text
 
 
-def draw_boxes(img: Image.Image, boxes, scores, labels, score_thr):
+def draw_boxes(img: Image.Image, boxes, scores, labels, score_thr, show_labels=True):
     """Draw bounding boxes on PIL image."""
     # Ensure RGBA so we can draw semi-transparent label backgrounds
     img = img.convert("RGBA")
@@ -332,25 +332,26 @@ def draw_boxes(img: Image.Image, boxes, scores, labels, score_thr):
         for t in range(lw):
             draw.rectangle([x1-t, y1-t, x2+t, y2+t], outline=color + (255,))
 
-        # label text
-        label_str = "Unknown" if is_unknown else _class_names[int(label)]
-        text = label_str
+        if show_labels:
+            # label text
+            label_str = "Unknown" if is_unknown else _class_names[int(label)]
+            text = label_str
 
-        # text background
-        bbox_text = font.getbbox(text)
-        tw, th = bbox_text[2] - bbox_text[0], bbox_text[3] - bbox_text[1]
-        pad = 4
-        ty = max(0, y1 - th - pad * 2)
-        draw.rectangle(
-            [x1, ty, x1 + tw + pad * 2, ty + th + pad * 2],
-            fill=color + (BG_ALPHA,)
-        )
-        draw.text(
-            (x1 + pad, ty + pad),
-            text,
-            fill=(0, 0, 0, 255) if not is_unknown else (255, 255, 255, 255),
-            font=font_bold if is_unknown else font,
-        )
+            # text background
+            bbox_text = font.getbbox(text)
+            tw, th = bbox_text[2] - bbox_text[0], bbox_text[3] - bbox_text[1]
+            pad = 4
+            ty = max(0, y1 - th - pad * 2)
+            draw.rectangle(
+                [x1, ty, x1 + tw + pad * 2, ty + th + pad * 2],
+                fill=color + (BG_ALPHA,)
+            )
+            draw.text(
+                (x1 + pad, ty + pad),
+                text,
+                fill=(0, 0, 0, 255) if not is_unknown else (255, 255, 255, 255),
+                font=font_bold if is_unknown else font,
+            )
 
     # Composite overlay onto base image, return as RGB
     combined = Image.alpha_composite(img, overlay)
@@ -437,7 +438,10 @@ body { background: #0d1117; }
     background: #161b22 !important;
     border: 1px solid #30363d !important;
     border-radius: 12px !important;
-    color: #c9d1d9 !important;
+    padding: 16px !important;
+}
+#info-panel, #info-panel * {
+    color: #e6edf3 !important;
 }
 
 /* ── slider ── */
@@ -493,6 +497,10 @@ def create_ui():
                     label="Ngưỡng trùng lặp IoU (NMS Threshold)",
                     elem_classes="slider-wrap",
                 )
+                show_labels_cb = gr.Checkbox(
+                    value=False,
+                    label="Hiển thị nhãn trên ảnh (Show labels)",
+                )
                 with gr.Row():
                     detect_btn = gr.Button("🚀 Phát hiện", elem_id="detect-btn", variant="primary")
                     clear_btn  = gr.Button("🗑 Xoá",        elem_id="clear-btn")
@@ -526,13 +534,13 @@ def create_ui():
         """)
 
         # ── Event handlers ───────────────────────────────────────────────────
-        def on_detect(img, thr, iou):
+        def on_detect(img, thr, iou, show_lbl):
             if img is None:
                 return None, "⚠️ Vui lòng upload ảnh trước."
             if _model is None:
                 return None, "⚠️ Model chưa được load. Vui lòng khởi chạy đúng tham số."
             try:
-                out_img, info = run_inference(img, thr, iou)
+                out_img, info = run_inference(img, thr, iou, show_lbl)
                 return out_img, info
             except Exception as e:
                 import traceback
@@ -540,7 +548,7 @@ def create_ui():
 
         detect_btn.click(
             fn=on_detect,
-            inputs=[input_img, score_slider, iou_slider],
+            inputs=[input_img, score_slider, iou_slider, show_labels_cb],
             outputs=[output_img, info_box],
         )
 
