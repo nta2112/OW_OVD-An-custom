@@ -189,7 +189,47 @@ def load_model(cfg_path: str, ckpt_path: str, ann_file: Optional[str], device: s
 # INFERENCE
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def run_inference(pil_img: Image.Image, score_thr: float):
+def class_agnostic_nms(boxes, scores, labels, iou_threshold=0.45):
+    """
+    Perform class-agnostic Non-Maximum Suppression.
+    boxes: numpy array of shape (N, 4) xyxy
+    scores: numpy array of shape (N,)
+    labels: numpy array of shape (N,)
+    """
+    if len(boxes) == 0:
+        return boxes, scores, labels
+        
+    x1 = boxes[:, 0]
+    y1 = boxes[:, 1]
+    x2 = boxes[:, 2]
+    y2 = boxes[:, 3]
+    areas = (x2 - x1) * (y2 - y1)
+    
+    order = scores.argsort()[::-1]
+    keep = []
+    
+    while order.size > 0:
+        i = order[0]
+        keep.append(i)
+        
+        xx1 = np.maximum(x1[i], x1[order[1:]])
+        yy1 = np.maximum(y1[i], y1[order[1:]])
+        xx2 = np.minimum(x2[i], x2[order[1:]])
+        yy2 = np.minimum(y2[i], y2[order[1:]])
+        
+        w = np.maximum(0.0, xx2 - xx1)
+        h = np.maximum(0.0, yy2 - yy1)
+        inter = w * h
+        
+        ovr = inter / (areas[i] + areas[order[1:]] - inter + 1e-6)
+        
+        inds = np.where(ovr <= iou_threshold)[0]
+        order = order[inds + 1]
+        
+    return boxes[keep], scores[keep], labels[keep]
+
+
+def run_inference(pil_img: Image.Image, score_thr: float, iou_thr: float):
     """Run model inference on a PIL image, return annotated PIL image + info."""
     import cv2
     from mmdet.apis import inference_detector
@@ -206,6 +246,9 @@ def run_inference(pil_img: Image.Image, score_thr: float):
     scores = pred_instances.scores.cpu().numpy()   # (N,)
     labels = pred_instances.labels.cpu().numpy()   # (N,)
 
+    # Thực hiện Class-Agnostic NMS để lọc bớt box đè nhau
+    boxes, scores, labels = class_agnostic_nms(boxes, scores, labels, iou_threshold=iou_thr)
+ 
     # Logic gán nhãn Unknown thông minh:
     # 1. Các box có score >= score_thr (thanh kéo): Giữ nguyên Known class (Yellow).
     # 2. Các box có score < score_thr nhưng vẫn >= 0.05: Có vật thể nhưng độ tin cậy phân loại Known quá thấp.
@@ -445,6 +488,11 @@ def create_ui():
                     label="Ngưỡng confidence (Score Threshold)",
                     elem_classes="slider-wrap",
                 )
+                iou_slider = gr.Slider(
+                    minimum=0.05, maximum=0.95, value=0.45, step=0.05,
+                    label="Ngưỡng trùng lặp IoU (NMS Threshold)",
+                    elem_classes="slider-wrap",
+                )
                 with gr.Row():
                     detect_btn = gr.Button("🚀 Phát hiện", elem_id="detect-btn", variant="primary")
                     clear_btn  = gr.Button("🗑 Xoá",        elem_id="clear-btn")
@@ -478,13 +526,13 @@ def create_ui():
         """)
 
         # ── Event handlers ───────────────────────────────────────────────────
-        def on_detect(img, thr):
+        def on_detect(img, thr, iou):
             if img is None:
                 return None, "⚠️ Vui lòng upload ảnh trước."
             if _model is None:
                 return None, "⚠️ Model chưa được load. Vui lòng khởi chạy đúng tham số."
             try:
-                out_img, info = run_inference(img, thr)
+                out_img, info = run_inference(img, thr, iou)
                 return out_img, info
             except Exception as e:
                 import traceback
@@ -492,7 +540,7 @@ def create_ui():
 
         detect_btn.click(
             fn=on_detect,
-            inputs=[input_img, score_slider],
+            inputs=[input_img, score_slider, iou_slider],
             outputs=[output_img, info_box],
         )
 
