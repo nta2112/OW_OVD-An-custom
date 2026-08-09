@@ -25,7 +25,7 @@ import numpy as np
 from PIL import Image
 from tqdm import tqdm
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 # Lazy patch to ensure compatibility with MMCV version limits and pure Python fallback
 def patch_environment():
