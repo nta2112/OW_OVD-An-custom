@@ -50,6 +50,28 @@ def patch_environment():
             mock_ext.__spec__ = importlib.machinery.ModuleSpec('mmcv._ext', None)
             sys.modules['mmcv._ext'] = mock_ext
 
+    # 2. Patch version limits BEFORE importing mmdet/mmyolo to prevent AssertionError
+    import importlib.util
+    def _patch_file(pkg_name, old_ver, new_ver="2.3.0"):
+        try:
+            spec = importlib.util.find_spec(pkg_name)
+            if spec is not None and spec.origin:
+                with open(spec.origin, "r", encoding="utf-8") as f:
+                    txt = f.read()
+                old_str = f"mmcv_maximum_version = '{old_ver}'"
+                if old_str in txt:
+                    with open(spec.origin, "w", encoding="utf-8") as f:
+                        f.write(txt.replace(old_str, f"mmcv_maximum_version = '{new_ver}'"))
+                    print(f"-> Patched maximum MMCV version limit to {new_ver} in {pkg_name}")
+        except Exception:
+            pass
+
+    _patch_file("mmdet", "2.1.0")
+    _patch_file("mmdet", "2.2.0")
+    _patch_file("mmyolo", "2.1.0")
+    _patch_file("mmyolo", "2.2.0")
+
+    # 3. Now it is safe to import mmengine and mmyolo
     import mmengine
     from mmyolo import __file__ as mmyolo_init_path
     mmyolo_pkg_root = os.path.dirname(mmyolo_init_path)
@@ -69,21 +91,6 @@ def patch_environment():
                     filename = new_path_fallback
         return _orig_file2dict(filename, *args, **kwargs)
     mmengine.Config._file2dict = _patched_file2dict
-
-    import importlib.util
-    def _patch(pkg, old, new="2.3.0"):
-        spec = importlib.util.find_spec(pkg)
-        if spec is None or not spec.origin: return
-        with open(spec.origin, "r", encoding="utf-8") as f:
-            txt = f.read()
-        old_str = f"mmcv_maximum_version = '{old}'"
-        if old_str in txt:
-            with open(spec.origin, "w", encoding="utf-8") as f:
-                f.write(txt.replace(old_str, f"mmcv_maximum_version = '{new}'"))
-    _patch("mmdet", "2.2.0")
-    _patch("mmdet", "2.1.0")
-    _patch("mmyolo", "2.1.0")
-    _patch("mmyolo", "2.2.0")
 
 
 # Run patches immediately
