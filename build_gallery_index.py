@@ -223,9 +223,8 @@ def main():
     # 5. Process images
     gallery_records = []
     
-    for img_path_obj in tqdm(image_paths, desc="Processing Gallery Images"):
-        img_path = str(img_path_obj)
-        filename = img_path_obj.name
+    for img_path in tqdm(image_paths, desc="Processing Gallery Images"):
+        filename = os.path.basename(img_path)
         
         # Determine class info
         class_id = filename_to_class_id.get(filename, -1)
@@ -233,7 +232,7 @@ def main():
             class_label = cat_id_to_name.get(class_id, f"class_{class_id}")
         else:
             # Fallback: parent directory name
-            class_label = img_path_obj.parent.name
+            class_label = os.path.basename(os.path.dirname(img_path))
             class_id = -1
             
         try:
