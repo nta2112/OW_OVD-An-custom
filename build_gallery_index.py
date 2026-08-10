@@ -287,7 +287,14 @@ def main():
             inputs = clip_processor(images=cropped_img, return_tensors="pt").to(args.device)
             with torch.no_grad():
                 features = clip_model.get_image_features(**inputs)
-                # L2 Normalize
+                # Unpack if returned as BaseModelOutputWithPooling
+                if not isinstance(features, torch.Tensor):
+                    if hasattr(features, "pooler_output") and features.pooler_output is not None:
+                        features = features.pooler_output
+                    elif hasattr(features, "image_embeds") and features.image_embeds is not None:
+                        features = features.image_embeds
+                    elif isinstance(features, (list, tuple)):
+                        features = features[0]
                 features = features / features.norm(dim=-1, keepdim=True)
                 feature_vector = features.cpu().numpy()[0]
                 
