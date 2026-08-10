@@ -157,34 +157,57 @@ def main():
     else:
         print("-> No annotation mapping loaded. Filenames/folders will be used as fallback labels.")
 
-    # 2. Collect images in directory (Case-insensitive & Auto-resolving)
+    # 2. Collect images (Case-insensitive & Annotation-driven fallback)
     image_paths = []
     resolved_dir = args.gallery_dir
-    
-    # Try finding images in the specified directory
+
+    # First, let's resolve the folder containing the physical image files
+    found_folder = False
     if os.path.exists(resolved_dir):
         for root, _, files in os.walk(resolved_dir):
-            for file in files:
-                if file.lower().endswith(('.jpg', '.jpeg', '.png')):
-                    image_paths.append(os.path.join(root, file))
-                    
-    # Auto-resolve if empty by searching the dataset root recursively
-    if len(image_paths) == 0:
+            if any(f.lower().endswith(('.jpg', '.jpeg', '.png')) for f in files):
+                resolved_dir = root
+                found_folder = True
+                break
+                
+    if not found_folder:
         parent_dir = os.path.dirname(args.gallery_dir)
-        print(f"-> WARNING: No images found in {args.gallery_dir}. Searching dataset parent directory recursively...")
+        print(f"-> WARNING: Specified directory empty. Scanning parent {parent_dir} recursively...")
         for root, _, files in os.walk(parent_dir):
-            for file in files:
-                if file.lower().endswith(('.jpg', '.jpeg', '.png')):
-                    image_paths.append(os.path.join(root, file))
-                    resolved_dir = root # update resolved folder to first folder containing images
-        if image_paths:
-            print(f"-> Auto-resolved image directory to: {resolved_dir}")
-         
+            if any(f.lower().endswith(('.jpg', '.jpeg', '.png')) for f in files):
+                resolved_dir = root
+                found_folder = True
+                break
+                
+    # Now, if an annotation file is provided, filter the images to include only those in the split
+    if args.ann_file and os.path.exists(args.ann_file):
+        print(f"-> Filtering gallery images using split annotations: {args.ann_file}")
+        with open(args.ann_file, 'r', encoding='utf-8') as f:
+            coco = json.load(f)
+        for img in coco.get('images', []):
+            basename = os.path.basename(img['file_name'])
+            real_path = os.path.join(resolved_dir, basename)
+            if os.path.exists(real_path):
+                image_paths.append(real_path)
+            else:
+                import glob
+                matches = glob.glob(os.path.join(resolved_dir, '**', basename), recursive=True)
+                if matches:
+                    image_paths.append(matches[0])
+        print(f"-> Selected {len(image_paths)} images belonging to split defined in {args.ann_file}")
+    else:
+        # Otherwise, collect all images in the directory
+        if found_folder:
+            for root, _, files in os.walk(resolved_dir):
+                for file in files:
+                    if file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                        image_paths.append(os.path.join(root, file))
+                        
     if not image_paths:
-        print(f"Error: No images found in {args.gallery_dir} or parent {os.path.dirname(args.gallery_dir)}")
+        print(f"Error: No images found in {resolved_dir} or parent directory.")
         return
         
-    print(f"-> Found {len(image_paths)} images in gallery directory: {resolved_dir}")
+    print(f"-> Total images to index: {len(image_paths)}")
 
     # 3. Load OW-OVD Detector Model
     print(f"-> Initializing Detector model on {args.device}...")
