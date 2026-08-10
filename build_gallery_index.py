@@ -157,17 +157,34 @@ def main():
     else:
         print("-> No annotation mapping loaded. Filenames/folders will be used as fallback labels.")
 
-    # 2. Collect images in directory
-    gallery_dir_path = Path(args.gallery_dir)
+    # 2. Collect images in directory (Case-insensitive & Auto-resolving)
     image_paths = []
-    for ext in ("*.jpg", "*.jpeg", "*.png"):
-        image_paths.extend(gallery_dir_path.rglob(ext))
-        
+    resolved_dir = args.gallery_dir
+    
+    # Try finding images in the specified directory
+    if os.path.exists(resolved_dir):
+        for root, _, files in os.walk(resolved_dir):
+            for file in files:
+                if file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    image_paths.append(os.path.join(root, file))
+                    
+    # Auto-resolve if empty by searching the dataset root recursively
+    if len(image_paths) == 0:
+        parent_dir = os.path.dirname(args.gallery_dir)
+        print(f"-> WARNING: No images found in {args.gallery_dir}. Searching dataset parent directory recursively...")
+        for root, _, files in os.walk(parent_dir):
+            for file in files:
+                if file.lower().endswith(('.jpg', '.jpeg', '.png')):
+                    image_paths.append(os.path.join(root, file))
+                    resolved_dir = root # update resolved folder to first folder containing images
+        if image_paths:
+            print(f"-> Auto-resolved image directory to: {resolved_dir}")
+         
     if not image_paths:
-        print(f"Error: No images found in {args.gallery_dir}")
+        print(f"Error: No images found in {args.gallery_dir} or parent {os.path.dirname(args.gallery_dir)}")
         return
         
-    print(f"-> Found {len(image_paths)} images in gallery directory: {args.gallery_dir}")
+    print(f"-> Found {len(image_paths)} images in gallery directory: {resolved_dir}")
 
     # 3. Load OW-OVD Detector Model
     print(f"-> Initializing Detector model on {args.device}...")

@@ -137,11 +137,28 @@ def load_dataset_records(dataset_root: str, split: str) -> List[Dict]:
     
     # Image folder fallback search
     image_folder = dataset_root
+    found_folder = False
     for subfolder in [split, 'images', 'test/test', 'train/train', 'val/val']:
         test_path = os.path.join(dataset_root, subfolder)
         if os.path.exists(test_path) and os.path.isdir(test_path):
-            image_folder = test_path
-            break
+            try:
+                files_in_dir = os.listdir(test_path)
+                if any(f.lower().endswith(('.jpg', '.jpeg', '.png')) for f in files_in_dir):
+                    image_folder = test_path
+                    found_folder = True
+                    break
+            except Exception:
+                continue
+                
+    if not found_folder:
+        # Recursive search for first folder containing images
+        print(f"-> WARNING: Standard subfolders empty. Scanning {dataset_root} recursively to locate image files...")
+        for root, _, files in os.walk(dataset_root):
+            if any(f.lower().endswith(('.jpg', '.jpeg', '.png')) for f in files):
+                image_folder = root
+                found_folder = True
+                print(f"-> Auto-resolved image directory to: {image_folder}")
+                break
             
     images = coco.get('images', [])
     img_id_to_info = {}
