@@ -97,8 +97,10 @@ def patch_environment():
 patch_environment()
 
 import torch
+import torch.nn.functional as F
 import cv2
 from mmdet.apis import init_detector, inference_detector
+from mmdet.structures import DetDataSample
 from transformers import CLIPProcessor, CLIPModel
 
 
@@ -209,6 +211,95 @@ def load_dataset_records(dataset_root: str, split: str) -> List[Dict]:
     return records
 
 
+def extract_hauf_safeguard(model, crop_img: Image.Image, device: str) -> float:
+    """
+    Passes the cropped image through the detector model and calculates the 
+    HAUF unknown anomaly score (P_u) directly from the model's logits.
+    """
+    try:
+        # Preprocess crop image to BGR numpy array
+        crop_cv = cv2.cvtColor(np.array(crop_img.resize((640, 640))), cv2.COLOR_RGB2BGR)
+        crop_tensor = torch.from_numpy(crop_cv).permute(2, 0, 1).unsqueeze(0).float().to(device)
+        
+        # Prepare data sample
+        data_sample = DetDataSample()
+        data_sample.set_metainfo({
+            'img_shape': crop_cv.shape[:2],
+            'ori_shape': crop_cv.shape[:2],
+            'pad_shape': crop_cv.shape[:2],
+        })
+        
+        # Normalization and padding
+        with torch.no_grad():
+            batch_inputs, batch_data_samples = model.data_preprocessor(crop_tensor, [data_sample])
+            
+            # Extract features
+            img_feats, txt_feats = model.extract_feat(batch_inputs, batch_data_samples)
+            raw_outs = model.bbox_head(img_feats, txt_feats)
+            
+            # Append unknown predictions using model's head
+            att_feats = model.bbox_head.att_embeddings[None].repeat(img_feats[0].shape[0], 1, 1)
+            cls_scores_with_unknown, _ = model.bbox_head.predict_unknown(raw_outs, img_feats, att_feats)
+            
+            # Find the highest unknown score (P_u) across all levels and grid cells
+            max_pu = -1.0
+            
+            for i, logits in enumerate(cls_scores_with_unknown):
+                pu_map = logits[0, -1]  # The last channel is P_u (already sigmoid-activated)
+                val, idx = pu_map.view(-1).max(dim=0)
+                if val.item() > max_pu:
+                    max_pu = val.item()
+                    
+            return max_pu
+            
+    except Exception as e:
+        return 0.0
+
+
+def calculate_auroc_numpy(y_true, y_scores) -> Tuple[float, np.ndarray, np.ndarray]:
+    """
+    Computes the Area Under the ROC Curve (AUROC) using numpy without sklearn.
+    """
+    y_true = np.array(y_true)
+    y_scores = np.array(y_scores)
+    
+    desc_score_indices = np.argsort(y_scores)[::-1]
+    y_true = y_true[desc_score_indices]
+    y_scores = y_scores[desc_score_indices]
+    
+    n_pos = np.sum(y_true)
+    n_neg = len(y_true) - n_pos
+    
+    if n_pos == 0 or n_neg == 0:
+        return 0.5, np.array([0.0, 1.0]), np.array([0.0, 1.0])
+        
+    tp = np.cumsum(y_true)
+    fp = np.cumsum(1 - y_true)
+    
+    tpr = tp / n_pos
+    fpr = fp / n_neg
+    
+    tpr = np.concatenate(([0.0], tpr))
+    fpr = np.concatenate(([0.0], fpr))
+    
+    # Trapezoidal integration
+    area = 0.0
+    for i in range(len(fpr) - 1):
+        area += 0.5 * (tpr[i] + tpr[i+1]) * (fpr[i+1] - fpr[i])
+        
+    return area, fpr, tpr
+
+
+def calculate_fpr_at_tpr95(fpr, tpr) -> float:
+    """
+    Finds the FPR when TPR is >= 0.95.
+    """
+    idx = np.where(tpr >= 0.95)[0]
+    if len(idx) > 0:
+        return fpr[idx[0]]
+    return 1.0
+
+
 def extract_split_embeddings(
     records: List[Dict], 
     model, 
@@ -258,6 +349,11 @@ def extract_split_embeddings(
             else:
                 cropped_img = img_pil
                 
+            # Compute HAUF Anomaly score
+            unknown_score = 0.0
+            if best_box is not None and hasattr(model, 'bbox_head') and hasattr(model.bbox_head, 'att_embeddings') and model.bbox_head.att_embeddings is not None:
+                unknown_score = extract_hauf_safeguard(model, cropped_img, device)
+                
             # Stage 2: Feature extraction
             inputs = clip_processor(images=cropped_img, return_tensors="pt").to(device)
             with torch.no_grad():
@@ -277,7 +373,8 @@ def extract_split_embeddings(
                 "image_path": item['image_path'],
                 "class_id": item['class_id'],
                 "class_label": item['class_label'],
-                "feature_vector": feature_vector
+                "feature_vector": feature_vector,
+                "unknown_score": float(unknown_score)
             })
         except Exception as e:
             continue
@@ -365,7 +462,10 @@ def save_report(
     macro_r5: float, 
     macro_r10: float,
     query_split: str,
-    gallery_split: str
+    gallery_split: str,
+    auroc: float = None,
+    fpr95: float = None,
+    config_name: str = None
 ):
     """
     Saves a beautifully formatted Markdown report file.
@@ -381,6 +481,17 @@ def save_report(
         f.write(f"| **Recall@1** | {macro_r1:.4f} | - |\n")
         f.write(f"| **Recall@5** | {macro_r5:.4f} | - |\n")
         f.write(f"| **Recall@10** | {macro_r10:.4f} | - |\n\n")
+        
+        if auroc is not None and fpr95 is not None:
+            f.write("## Open-World Anomaly Detection Metrics (HAUF Safeguard)\n\n")
+            f.write("| Metric | Score |\n")
+            f.write("| :--- | :---: |\n")
+            f.write(f"| **AUROC (Area Under ROC)** | {auroc:.4f} |\n")
+            f.write(f"| **FPR@TPR95** | {fpr95:.4f} |\n\n")
+            
+            if config_name:
+                f.write(f"### ROC Curve Plot\n\n")
+                f.write(f"![ROC Curve](roc_curve_{config_name}.png)\n\n")
         
         f.write("## Class-Wise Retrieval Metrics\n\n")
         f.write("| Class Name | Query Count | Recall@1 | Recall@5 | Recall@10 |\n")
@@ -403,13 +514,25 @@ def main():
     gallery_records = load_dataset_records(args.dataset_root, args.gallery_split)
     print(f"-> Found {len(query_records)} query images and {len(gallery_records)} gallery images.")
 
-    # 2. Extract Query features (or load cache)
+    # Check if we need to force re-extraction of queries because they lack 'unknown_score'
+    force_reextract_query = False
     if os.path.exists(args.query_cache):
+        try:
+            with open(args.query_cache, "rb") as f:
+                temp_cache = pickle.load(f)
+                if len(temp_cache) > 0 and "unknown_score" not in temp_cache[0]:
+                    print("-> Cached Query embeddings do not contain 'unknown_score'. Forcing re-extraction...")
+                    force_reextract_query = True
+        except Exception:
+            force_reextract_query = True
+
+    # 2. Extract Query features (or load cache)
+    if os.path.exists(args.query_cache) and not force_reextract_query:
         print(f"-> Loading pre-computed Query embeddings from cache: {args.query_cache}")
         with open(args.query_cache, "rb") as f:
             query_processed = pickle.load(f)
     else:
-        print("-> Query cache not found. Extracting embeddings on the fly...")
+        print("-> Query cache not found or incomplete. Extracting embeddings on the fly...")
         model = init_detector(args.config, args.checkpoint, device=args.device)
         clip_model = CLIPModel.from_pretrained(args.clip_model, use_safetensors=True).to(args.device)
         clip_processor = CLIPProcessor.from_pretrained(args.clip_model)
@@ -441,6 +564,10 @@ def main():
         gallery_processed = extract_split_embeddings(
             gallery_records, model, clip_model, clip_processor, args.device, args.score_thr, "Processing Gallery Split"
         )
+        # Ensure we add unknown_score field to gallery too, for format consistency
+        for item in gallery_processed:
+            if "unknown_score" not in item:
+                item["unknown_score"] = 0.0
         with open(args.gallery_cache, "wb") as f:
             pickle.dump(gallery_processed, f)
         print(f"-> Saved Gallery cache to {args.gallery_cache}")
@@ -449,17 +576,110 @@ def main():
     print("-> Calculating retrieval metrics...")
     metrics, r1, r5, r10 = evaluate_retrieval(query_processed, gallery_processed)
     
-    # 5. Display Summary
+    # 5. Perform Open-World Anomaly Detection Evaluation (AUROC & FPR@95)
+    print("-> Calculating Open-World anomaly detection metrics...")
+    from mmengine.config import Config
+    cfg = Config.fromfile(args.config)
+    prev_intro_cls = cfg.get('prev_intro_cls', 0)
+    cur_intro_cls = cfg.get('cur_intro_cls', 27)
+    if 'model' in cfg and 'bbox_head' in cfg.model:
+        prev_intro_cls = cfg.model.bbox_head.get('prev_intro_cls', prev_intro_cls)
+        cur_intro_cls = cfg.model.bbox_head.get('cur_intro_cls', cur_intro_cls)
+    num_known_classes = prev_intro_cls + cur_intro_cls
+    print(f"-> Task class configuration: prev_intro_cls={prev_intro_cls}, cur_intro_cls={cur_intro_cls} (Total Known: {num_known_classes})")
+    
+    # Load category mapping from train.json to map class_id to 0-indexed position
+    train_json_path = os.path.join(args.dataset_root, "train.json")
+    cat_id_to_idx = {}
+    if os.path.exists(train_json_path):
+        try:
+            with open(train_json_path, "r", encoding="utf-8") as f:
+                coco_train = json.load(f)
+            sorted_categories = sorted(coco_train.get('categories', []), key=lambda x: x['id'])
+            cat_id_to_idx = {cat['id']: idx for idx, cat in enumerate(sorted_categories)}
+        except Exception as e:
+            print(f"Warning: Failed to parse train.json for category indices: {e}")
+            
+    if not cat_id_to_idx:
+        all_class_ids = sorted(list(set([r['class_id'] for r in query_processed] + [r['class_id'] for r in gallery_processed])))
+        cat_id_to_idx = {cid: idx for idx, cid in enumerate(all_class_ids)}
+        
+    y_true = []
+    y_scores = []
+    for item in query_processed:
+        class_idx = cat_id_to_idx.get(item['class_id'], 999)
+        # 0 for Known, 1 for Unknown (unseen)
+        label = 0 if class_idx < num_known_classes else 1
+        y_true.append(label)
+        y_scores.append(item.get('unknown_score', 0.0))
+        
+    y_true = np.array(y_true)
+    y_scores = np.array(y_scores)
+    
+    num_pos = np.sum(y_true)
+    num_neg = len(y_true) - num_pos
+    print(f"-> Query set OOD breakdown: {num_neg} Known samples, {num_pos} Unknown (unseen) samples.")
+    
+    auroc = None
+    fpr95 = None
+    config_name = Path(args.config).stem
+    
+    if num_pos > 0 and num_neg > 0:
+        auroc, fpr, tpr = calculate_auroc_numpy(y_true, y_scores)
+        fpr95 = calculate_fpr_at_tpr95(fpr, tpr)
+        print(f"-> Open-World AUROC:   {auroc:.4f}")
+        print(f"-> FPR@TPR95:          {fpr95:.4f}")
+        
+        # Plot ROC curve
+        import matplotlib.pyplot as plt
+        output_dir = os.path.dirname(args.output_report) if os.path.dirname(args.output_report) else "."
+        plot_path = os.path.join(output_dir, f"roc_curve_{config_name}.png")
+        try:
+            plt.figure(figsize=(6, 5))
+            plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC Curve (AUC = {auroc:.4f})')
+            plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+            plt.scatter([fpr95], [0.95], color='red', zorder=5, label=f'FPR@TPR95 = {fpr95:.4f}')
+            plt.xlim([0.0, 1.0])
+            plt.ylim([0.0, 1.05])
+            plt.xlabel('False Positive Rate (FPR)')
+            plt.ylabel('True Positive Rate (TPR)')
+            plt.title(f'ROC Curve for Unknown Pest Detection\n({config_name})')
+            plt.legend(loc="lower right")
+            plt.grid(True)
+            plt.tight_layout()
+            plt.savefig(plot_path, dpi=150)
+            plt.close()
+            print(f"-> Saved ROC curve plot to: {plot_path}")
+        except Exception as e:
+            print(f"Warning: Failed to plot ROC curve: {e}")
+    else:
+        print("-> Skipped AUROC calculation because either Known or Unknown query samples are missing.")
+    
+    # 6. Display Summary
     print("\n" + "="*50)
     print("            SUMMARY RETRIEVAL METRICS            ")
     print("="*50)
     print(f"Recall@1:  {r1:.4f}")
     print(f"Recall@5:  {r5:.4f}")
     print(f"Recall@10: {r10:.4f}")
+    if auroc is not None:
+        print(f"AUROC:     {auroc:.4f}")
+        print(f"FPR@TPR95: {fpr95:.4f}")
     print("="*50)
     
-    # 6. Save Markdown Report
-    save_report(args.output_report, metrics, r1, r5, r10, args.query_split, args.gallery_split)
+    # 7. Save Markdown Report
+    save_report(
+        args.output_report, 
+        metrics, 
+        r1, 
+        r5, 
+        r10, 
+        args.query_split, 
+        args.gallery_split,
+        auroc=auroc,
+        fpr95=fpr95,
+        config_name=config_name
+    )
     print("====== Evaluation Process Completed Successfully! ======")
 
 
