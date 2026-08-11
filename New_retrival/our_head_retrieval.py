@@ -60,15 +60,26 @@ class TripletLoss(nn.Module):
             
         return torch.stack(triplet_loss).mean()
 
-class AssignerWrapper:
+class AssignerWrapper(nn.Module):
     def __init__(self, original_assigner):
+        super().__init__()
         self.original_assigner = original_assigner
         self.latest_result = None
         
-    def __call__(self, *args, **kwargs):
+    def forward(self, *args, **kwargs):
         res = self.original_assigner(*args, **kwargs)
         self.latest_result = res
         return res
+        
+    def __call__(self, *args, **kwargs):
+        return self.forward(*args, **kwargs)
+        
+    def __getattr__(self, name):
+        try:
+            return super().__getattr__(name)
+        except AttributeError:
+            return getattr(self.original_assigner, name)
+
 
 @MODELS.register_module()
 class OurHeadRetrievalModule(OurHeadModule):
