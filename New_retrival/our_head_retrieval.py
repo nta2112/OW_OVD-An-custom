@@ -133,6 +133,8 @@ class OurHeadRetrievalModule(OurHeadModule):
         ret_embed = F.normalize(ret_embed, p=2, dim=1) # shape: (b, retrieval_dim, h, w)
         
         if self.reg_max > 1:
+            bbox_dist_preds = bbox_dist_preds.reshape(
+                [-1, 4, self.reg_max, h * w]).permute(0, 3, 1, 2)
             bbox_preds = bbox_dist_preds.softmax(3).matmul(
                 self.proj.view([-1, 1])).squeeze(-1)
             bbox_preds = bbox_preds.transpose(1, 2).reshape(b, -1, h, w)
