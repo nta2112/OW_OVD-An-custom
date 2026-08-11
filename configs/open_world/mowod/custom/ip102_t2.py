@@ -69,17 +69,7 @@ if image_data_root is None:
     image_data_root = dataset_root
 
 # Dynamically load class names from IP102 annotations
-class_names = None
-try:
-    with open(train_json, 'r') as f:
-        coco_data = json.load(f)
-    categories = sorted(coco_data['categories'], key=lambda x: x['id'])
-    class_names = [cat['name'] for cat in categories]
-except Exception:
-    pass
-
-if class_names is None:
-    class_names = [f"pest_{i}" for i in range(102)]
+class_names = [str(i) for i in range(102)]
 
 # open world setting
 prev_intro_cls = 27
