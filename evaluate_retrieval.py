@@ -128,6 +128,8 @@ def parse_args():
                         help="CLIP vision model to use")
     parser.add_argument("--score-thr", type=float, default=0.35,
                         help="Confidence threshold for pest detection")
+    parser.add_argument("--detector-retrieval", action="store_true",
+                        help="Use the detector's own retrieval head instead of CLIP")
     return parser.parse_args()
 
 
@@ -307,7 +309,8 @@ def extract_split_embeddings(
     clip_processor, 
     device: str, 
     score_thr: float,
-    desc: str
+    desc: str,
+    use_detector_retrieval: bool = False
 ) -> List[Dict]:
     """
     Extracts visual feature embeddings for a list of images. Performs crop-then-search.
@@ -327,47 +330,87 @@ def extract_split_embeddings(
             scores = pred_instances.scores.cpu().numpy()
             
             best_box = None
+            best_idx = -1
             if len(scores) > 0:
                 best_idx = np.argmax(scores)
                 if scores[best_idx] >= score_thr:
                     best_box = boxes[best_idx]
                     
-            # Stage 1: Crop with 10% padding
-            if best_box is not None:
-                x1, y1, x2, y2 = best_box
-                box_w = x2 - x1
-                box_h = y2 - y1
-                pad_w = int(0.1 * box_w)
-                pad_h = int(0.1 * box_h)
-                
-                x1_pad = max(0, int(x1 - pad_w))
-                y1_pad = max(0, int(y1 - pad_h))
-                x2_pad = min(width, int(x2 + pad_w))
-                y2_pad = min(height, int(y2 + pad_h))
-                
-                cropped_img = img_pil.crop((x1_pad, y1_pad, x2_pad, y2_pad))
-            else:
-                cropped_img = img_pil
+            # Stage 1: Crop with 10% padding (only if using CLIP)
+            cropped_img = None
+            if not use_detector_retrieval:
+                if best_box is not None:
+                    x1, y1, x2, y2 = best_box
+                    box_w = x2 - x1
+                    box_h = y2 - y1
+                    pad_w = int(0.1 * box_w)
+                    pad_h = int(0.1 * box_h)
+                    
+                    x1_pad = max(0, int(x1 - pad_w))
+                    y1_pad = max(0, int(y1 - pad_h))
+                    x2_pad = min(width, int(x2 + pad_w))
+                    y2_pad = min(height, int(y2 + pad_h))
+                    
+                    cropped_img = img_pil.crop((x1_pad, y1_pad, x2_pad, y2_pad))
+                else:
+                    cropped_img = img_pil
                 
             # Compute HAUF Anomaly score
             unknown_score = 0.0
             if best_box is not None and hasattr(model, 'bbox_head') and hasattr(model.bbox_head, 'att_embeddings') and model.bbox_head.att_embeddings is not None:
-                unknown_score = extract_hauf_safeguard(model, cropped_img, device)
+                # Use cropped_img for HAUF if CLIP, otherwise crop from img_pil
+                if cropped_img is None:
+                    x1, y1, x2, y2 = best_box
+                    x1_pad = max(0, int(x1 - 0.1*(x2-x1)))
+                    y1_pad = max(0, int(y1 - 0.1*(y2-y1)))
+                    x2_pad = min(width, int(x2 + 0.1*(x2-x1)))
+                    y2_pad = min(height, int(y2 + 0.1*(y2-y1)))
+                    cropped_hauf_img = img_pil.crop((x1_pad, y1_pad, x2_pad, y2_pad))
+                else:
+                    cropped_hauf_img = cropped_img
+                unknown_score = extract_hauf_safeguard(model, cropped_hauf_img, device)
                 
             # Stage 2: Feature extraction
-            inputs = clip_processor(images=cropped_img, return_tensors="pt").to(device)
-            with torch.no_grad():
-                features = clip_model.get_image_features(**inputs)
-                # Unpack if returned as BaseModelOutputWithPooling
-                if not isinstance(features, torch.Tensor):
-                    if hasattr(features, "pooler_output") and features.pooler_output is not None:
-                        features = features.pooler_output
-                    elif hasattr(features, "image_embeds") and features.image_embeds is not None:
-                        features = features.image_embeds
-                    elif isinstance(features, (list, tuple)):
-                        features = features[0]
-                features = features / features.norm(dim=-1, keepdim=True)
-                feature_vector = features.cpu().numpy()[0]
+            feature_vector = None
+            if use_detector_retrieval:
+                if best_idx != -1 and hasattr(pred_instances, 'features') and pred_instances.features is not None:
+                    feature_vector = pred_instances.features[best_idx].cpu().numpy()
+                
+                # Fallback if no box detected or features not populated
+                if feature_vector is None:
+                    data_sample = DetDataSample()
+                    data_sample.set_metainfo({
+                        'img_shape': img_bgr.shape[:2],
+                        'ori_shape': img_bgr.shape[:2],
+                        'pad_shape': img_bgr.shape[:2],
+                    })
+                    img_tensor = torch.from_numpy(img_bgr).permute(2, 0, 1).unsqueeze(0).float().to(device)
+                    with torch.no_grad():
+                        batch_inputs, batch_data_samples = model.data_preprocessor(img_tensor, [data_sample])
+                        img_feats, txt_feats = model.extract_feat(batch_inputs, batch_data_samples)
+                        raw_outs = model.bbox_head(img_feats, txt_feats)
+                        ret_embeds = raw_outs[2] # list of tensors of shape (1, retrieval_dim, h_i, w_i)
+                        
+                        pooled_levels = []
+                        for feat in ret_embeds:
+                            pooled = feat.mean(dim=(2, 3)) # shape (1, retrieval_dim)
+                            pooled_levels.append(pooled)
+                        feature_vector = torch.stack(pooled_levels, dim=0).mean(dim=0)[0]
+                        feature_vector = F.normalize(feature_vector, p=2, dim=0).cpu().numpy()
+            else:
+                inputs = clip_processor(images=cropped_img, return_tensors="pt").to(device)
+                with torch.no_grad():
+                    features = clip_model.get_image_features(**inputs)
+                    # Unpack if returned as BaseModelOutputWithPooling
+                    if not isinstance(features, torch.Tensor):
+                        if hasattr(features, "pooler_output") and features.pooler_output is not None:
+                            features = features.pooler_output
+                        elif hasattr(features, "image_embeds") and features.image_embeds is not None:
+                            features = features.image_embeds
+                        elif isinstance(features, (list, tuple)):
+                            features = features[0]
+                    features = features / features.norm(dim=-1, keepdim=True)
+                    feature_vector = features.cpu().numpy()[0]
                 
             processed_records.append({
                 "image_path": item['image_path'],
@@ -534,13 +577,20 @@ def main():
     else:
         print("-> Query cache not found or incomplete. Extracting embeddings on the fly...")
         model = init_detector(args.config, args.checkpoint, device=args.device)
-        clip_model = CLIPModel.from_pretrained(args.clip_model, use_safetensors=True).to(args.device)
-        clip_processor = CLIPProcessor.from_pretrained(args.clip_model)
         model.eval()
-        clip_model.eval()
+        
+        if args.detector_retrieval:
+            clip_model = None
+            clip_processor = None
+            print("-> Using detector's own retrieval head for feature extraction (no CLIP).")
+        else:
+            clip_model = CLIPModel.from_pretrained(args.clip_model, use_safetensors=True).to(args.device)
+            clip_processor = CLIPProcessor.from_pretrained(args.clip_model)
+            clip_model.eval()
         
         query_processed = extract_split_embeddings(
-            query_records, model, clip_model, clip_processor, args.device, args.score_thr, "Processing Query Split"
+            query_records, model, clip_model, clip_processor, args.device, args.score_thr, "Processing Query Split",
+            use_detector_retrieval=args.detector_retrieval
         )
         with open(args.query_cache, "wb") as f:
             pickle.dump(query_processed, f)
@@ -556,13 +606,20 @@ def main():
         # Load models if not already loaded
         if 'model' not in locals():
             model = init_detector(args.config, args.checkpoint, device=args.device)
-            clip_model = CLIPModel.from_pretrained(args.clip_model, use_safetensors=True).to(args.device)
-            clip_processor = CLIPProcessor.from_pretrained(args.clip_model)
             model.eval()
-            clip_model.eval()
+            
+        if args.detector_retrieval:
+            clip_model = None
+            clip_processor = None
+        else:
+            if 'clip_model' not in locals() or clip_model is None:
+                clip_model = CLIPModel.from_pretrained(args.clip_model, use_safetensors=True).to(args.device)
+                clip_processor = CLIPProcessor.from_pretrained(args.clip_model)
+                clip_model.eval()
             
         gallery_processed = extract_split_embeddings(
-            gallery_records, model, clip_model, clip_processor, args.device, args.score_thr, "Processing Gallery Split"
+            gallery_records, model, clip_model, clip_processor, args.device, args.score_thr, "Processing Gallery Split",
+            use_detector_retrieval=args.detector_retrieval
         )
         # Ensure we add unknown_score field to gallery too, for format consistency
         for item in gallery_processed:

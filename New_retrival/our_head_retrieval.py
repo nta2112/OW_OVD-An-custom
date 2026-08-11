@@ -155,20 +155,40 @@ class OurHeadRetrieval(OurHead):
         if hasattr(self, 'assigner') and self.assigner is not None:
             self.assigner = AssignerWrapper(self.assigner)
             
-    def loss(self, x: Tuple[Tensor], batch_data_samples: SampleList) -> dict:
+    def loss(self, img_feats: Tuple[Tensor], txt_feats: Tensor,
+             batch_data_samples: Union[list, dict], fusion_att: bool=False) -> dict:
         # Dynamically wrap assigner if it wasn't available at initialization
         if hasattr(self, 'assigner') and self.assigner is not None:
             if not isinstance(self.assigner, AssignerWrapper):
                 self.assigner = AssignerWrapper(self.assigner)
                 
-        # x contains (cls_scores, bbox_preds, bbox_dist_preds, ret_embeds)
-        cls_scores, bbox_preds, bbox_dist_preds, ret_embeds = x
+        # Forward pass of OurHeadRetrievalModule (returns 4 lists during training)
+        outs = self(img_feats, txt_feats)
+        cls_scores, bbox_preds, bbox_dist_preds, ret_embeds = outs
         
-        # Pass detection outputs to the parent class's loss logic
-        det_x = (cls_scores, bbox_preds, bbox_dist_preds)
-        losses = super().loss(det_x, batch_data_samples)
+        # Pass detection outputs
+        det_outs = (cls_scores, bbox_preds, bbox_dist_preds)
         
-        # Capture TaskAlignedAssigner results
+        if self.att_embeddings is None:
+            loss_inputs = det_outs + (None, batch_data_samples['bboxes_labels'],
+                                      batch_data_samples['img_metas'])
+            losses = self.loss_by_feat(*loss_inputs)
+        else:
+            if fusion_att: 
+                num_att = self.att_embeddings.shape[0]
+                att_feats = txt_feats[:, -num_att: , :]
+                txt_feats = txt_feats[:, :-num_att, :]
+            else:
+                att_feats = self.att_embeddings[None].repeat(txt_feats.shape[0], 1, 1)
+            
+            with torch.no_grad():
+                att_outs = self(img_feats, att_feats)[0]
+                
+            loss_inputs = det_outs + (att_outs, batch_data_samples['bboxes_labels'],
+                                      batch_data_samples['img_metas'])
+            losses = self.loss_by_feat(*loss_inputs)
+            
+        # Retrieval Loss (Triplet Loss)
         if not hasattr(self, 'assigner') or self.assigner is None or self.assigner.latest_result is None:
             losses['loss_retrieval'] = ret_embeds[0].new_tensor(0.0, requires_grad=True)
             return losses
@@ -218,3 +238,82 @@ class OurHeadRetrieval(OurHead):
             
         losses['loss_retrieval'] = loss_triplet * self.loss_retrieval_weight
         return losses
+
+    def predict(self,
+                img_feats: Tuple[Tensor],
+                txt_feats: Tensor,
+                batch_data_samples: SampleList,
+                rescale: bool = False, 
+                fusion_att: bool = False) -> InstanceList:
+        
+        # Forward pass in evaluation/predict mode (returns 3 lists: cls_scores, bbox_preds, ret_embeds)
+        x = self(img_feats, txt_feats)
+        cls_scores, bbox_preds, ret_embeds = x
+        
+        # Pack only detection outputs
+        det_outs = (cls_scores, bbox_preds)
+        
+        if self.att_embeddings.shape[0] != 25 * (self.num_classes):
+            self.select_att()
+            
+        batch_img_metas = [
+            data_samples.metainfo for data_samples in batch_data_samples
+        ]
+        
+        if self.att_embeddings is None:
+            predictions = self.predict_by_feat(*det_outs,
+                                               batch_img_metas=batch_img_metas,
+                                               rescale=rescale)
+        else:
+            if fusion_att: 
+                num_att = self.att_embeddings.shape[0]
+                att_feats = txt_feats[:, -num_att: , :]
+                txt_feats = txt_feats[:, :-num_att, :]
+            else:
+                if self.attr_sel_for_known_only:
+                    att_feats = self.all_atts[None].repeat(txt_feats.shape[0], 1, 1)
+                else:
+                    att_feats = self.att_embeddings[None].repeat(txt_feats.shape[0], 1, 1)
+            
+            det_outs = self.predict_unknown(det_outs, img_feats, att_feats)
+            predictions = self.predict_by_feat(*det_outs,
+                                               batch_img_metas=batch_img_metas,
+                                               rescale=rescale)
+            
+        # Extract retrieval embeddings for the predicted bounding boxes
+        import torchvision.ops as tv_ops
+        for i, pred in enumerate(predictions):
+            if len(pred) == 0:
+                pred.features = pred.bboxes.new_zeros((0, self.retrieval_dim))
+                continue
+                
+            bboxes = pred.bboxes
+            img_meta = batch_img_metas[i]
+            scale_factor = img_meta.get('scale_factor', (1.0, 1.0))
+            if isinstance(scale_factor, float):
+                scale_factor = (scale_factor, scale_factor)
+                
+            if rescale:
+                w_scale, h_scale = scale_factor
+                scaled_bboxes = bboxes.clone()
+                scaled_bboxes[:, 0] /= w_scale
+                scaled_bboxes[:, 2] /= w_scale
+                scaled_bboxes[:, 1] /= h_scale
+                scaled_bboxes[:, 3] /= h_scale
+            else:
+                scaled_bboxes = bboxes
+                
+            pooled_feats = []
+            for level_idx, stride in enumerate([8, 16, 32]):
+                feat = ret_embeds[level_idx][i:i+1] # (1, retrieval_dim, h_j, w_j)
+                lvl_boxes = scaled_bboxes / stride
+                rois = torch.cat([lvl_boxes.new_zeros(len(lvl_boxes), 1), lvl_boxes], dim=1)
+                pooled = tv_ops.roi_align(feat, rois, output_size=(1, 1), spatial_scale=1.0, aligned=True)
+                pooled_feats.append(pooled.view(len(lvl_boxes), -1))
+                
+            img_box_embeds = torch.stack(pooled_feats, dim=0).mean(dim=0)
+            img_box_embeds = F.normalize(img_box_embeds, p=2, dim=1)
+            pred.features = img_box_embeds
+            
+        return predictions
+
