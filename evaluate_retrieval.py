@@ -589,20 +589,22 @@ def main():
     print(f"-> Task class configuration: prev_intro_cls={prev_intro_cls}, cur_intro_cls={cur_intro_cls} (Total Known: {num_known_classes})")
     
     # Load category mapping from train.json to map class_id to 0-indexed position
+    # In IP102 dataset, category IDs in the COCO annotations (e.g. 14, 15, 101) correspond 
+    # to 1-based class IDs from classes.txt. Since the model expects 0-indexed indices (0 to 101),
+    # we map each category ID x to x - 1.
     train_json_path = os.path.join(args.dataset_root, "train.json")
     cat_id_to_idx = {}
     if os.path.exists(train_json_path):
         try:
             with open(train_json_path, "r", encoding="utf-8") as f:
                 coco_train = json.load(f)
-            sorted_categories = sorted(coco_train.get('categories', []), key=lambda x: x['id'])
-            cat_id_to_idx = {cat['id']: idx for idx, cat in enumerate(sorted_categories)}
+            cat_id_to_idx = {cat['id']: cat['id'] - 1 for cat in coco_train.get('categories', [])}
         except Exception as e:
             print(f"Warning: Failed to parse train.json for category indices: {e}")
             
     if not cat_id_to_idx:
         all_class_ids = sorted(list(set([r['class_id'] for r in query_processed] + [r['class_id'] for r in gallery_processed])))
-        cat_id_to_idx = {cid: idx for idx, cid in enumerate(all_class_ids)}
+        cat_id_to_idx = {cid: cid - 1 for cid in all_class_ids}
         
     y_true = []
     y_scores = []
