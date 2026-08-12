@@ -196,17 +196,6 @@ class OurHeadRetrieval(OurHead):
             return losses
             
         assign_result = self.assigner.latest_result
-        if isinstance(assign_result, list):
-            gt_inds_list = [res.gt_inds for res in assign_result]
-        else:
-            gt_inds_list = assign_result.gt_inds
-            if len(gt_inds_list.shape) == 2:
-                gt_inds_list = [gt_inds_list[i] for i in range(gt_inds_list.shape[0])]
-            else:
-                gt_inds_list = [gt_inds_list]
-                
-        pos_embeddings_list = []
-        pos_labels_list = []
         
         # Flatten ret_embeds to align with total anchors
         flatten_ret_embeds = []
@@ -216,21 +205,71 @@ class OurHeadRetrieval(OurHead):
             flatten_ret_embeds.append(flat)
         flatten_ret_embeds = torch.cat(flatten_ret_embeds, dim=1) # (batch_size, total_anchors, retrieval_dim)
         
-        for i, gt_inds in enumerate(gt_inds_list):
-            fg_mask = gt_inds > 0
-            if not fg_mask.any():
-                continue
+        pos_embeddings_list = []
+        pos_labels_list = []
+        
+        # Handle dict format (e.g. BatchTaskAlignedAssigner) vs standard list/class format
+        if isinstance(assign_result, dict):
+            fg_mask_pre_prior = assign_result['fg_mask_pre_prior']
+            assigned_bboxes = assign_result['assigned_bboxes']
+            
+            for i in range(fg_mask_pre_prior.shape[0]):
+                fg_mask = fg_mask_pre_prior[i]
+                if not fg_mask.any():
+                    continue
+                    
+                img_pos_embeds = flatten_ret_embeds[i][fg_mask]
                 
-            img_pos_embeds = flatten_ret_embeds[i][fg_mask]
-            gt_instances = batch_data_samples[i].gt_instances
-            gt_labels = gt_instances.labels
-            
-            pos_gt_indices = gt_inds[fg_mask] - 1
-            img_pos_labels = gt_labels[pos_gt_indices]
-            
-            pos_embeddings_list.append(img_pos_embeds)
-            pos_labels_list.append(img_pos_labels)
-            
+                # Retrieve from batch_data_samples which could be list or dict
+                if isinstance(batch_data_samples, dict):
+                    gt_instances = batch_data_samples['bboxes_labels'][i]
+                else:
+                    gt_instances = batch_data_samples[i].gt_instances
+                    
+                img_gt_boxes = gt_instances.bboxes.to(assigned_bboxes.device, dtype=assigned_bboxes.dtype)
+                img_gt_labels = gt_instances.labels
+                
+                img_pos_assigned_boxes = assigned_bboxes[i][fg_mask]
+                
+                # Match assigned boxes to ground truth boxes to get indices
+                dists = torch.abs(img_pos_assigned_boxes.unsqueeze(1) - img_gt_boxes.unsqueeze(0)).sum(dim=-1)
+                pos_gt_indices = torch.argmin(dists, dim=-1)
+                
+                img_pos_labels = img_gt_labels[pos_gt_indices]
+                
+                pos_embeddings_list.append(img_pos_embeds)
+                pos_labels_list.append(img_pos_labels)
+        else:
+            # Original list/class format
+            if isinstance(assign_result, list):
+                gt_inds_list = [res.gt_inds for res in assign_result]
+            else:
+                gt_inds_list = assign_result.gt_inds
+                if len(gt_inds_list.shape) == 2:
+                    gt_inds_list = [gt_inds_list[i] for i in range(gt_inds_list.shape[0])]
+                else:
+                    gt_inds_list = [gt_inds_list]
+                    
+            for i, gt_inds in enumerate(gt_inds_list):
+                fg_mask = gt_inds > 0
+                if not fg_mask.any():
+                    continue
+                    
+                img_pos_embeds = flatten_ret_embeds[i][fg_mask]
+                
+                # Retrieve from batch_data_samples which could be list or dict
+                if isinstance(batch_data_samples, dict):
+                    gt_instances = batch_data_samples['bboxes_labels'][i]
+                else:
+                    gt_instances = batch_data_samples[i].gt_instances
+                    
+                gt_labels = gt_instances.labels
+                pos_gt_indices = gt_inds[fg_mask] - 1
+                img_pos_labels = gt_labels[pos_gt_indices]
+                
+                pos_embeddings_list.append(img_pos_embeds)
+                pos_labels_list.append(img_pos_labels)
+                
         if len(pos_embeddings_list) > 0:
             all_pos_embeds = torch.cat(pos_embeddings_list, dim=0)
             all_pos_labels = torch.cat(pos_labels_list, dim=0)
