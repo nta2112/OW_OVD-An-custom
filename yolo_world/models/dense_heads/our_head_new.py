@@ -879,20 +879,24 @@ class OurHead(YOLOv8Head):
             or self.att_embeddings is None:
             return
         
-        num_att = att_scores.shape[-1]
-        num_known = assigned_scores.shape[-1]
-        att_scores = att_scores.sigmoid().reshape(-1, num_att).float()      
-        assigned_scores = assigned_scores.reshape(-1, num_known)
-        # set previous classes to 0
-        assigned_scores[:, 0: self.prev_intro_cls] = 0
-        assigned_scores = assigned_scores.max(-1)[0]
-        for idx, thr in enumerate(self.thrs):
-            positive = (assigned_scores >= thr)
-            positive_scores = att_scores[positive]
-            negative_scores = att_scores[~positive]
-            for att_i in range(num_att):
-                self.positive_distributions[idx][att_i] += torch.histc(positive_scores[:, att_i], bins=int(1/0.0001), min=0, max=1)
-                self.negative_distributions[idx][att_i] += torch.histc(negative_scores[:, att_i], bins=int(1/0.0001), min=0, max=1)
+        with torch.no_grad():
+            att_scores = att_scores.detach()
+            assigned_scores = assigned_scores.detach()
+            
+            num_att = att_scores.shape[-1]
+            num_known = assigned_scores.shape[-1]
+            att_scores = att_scores.sigmoid().reshape(-1, num_att).float()      
+            assigned_scores = assigned_scores.reshape(-1, num_known)
+            # set previous classes to 0
+            assigned_scores[:, 0: self.prev_intro_cls] = 0
+            assigned_scores = assigned_scores.max(-1)[0]
+            for idx, thr in enumerate(self.thrs):
+                positive = (assigned_scores >= thr)
+                positive_scores = att_scores[positive]
+                negative_scores = att_scores[~positive]
+                for att_i in range(num_att):
+                    self.positive_distributions[idx][att_i] += torch.histc(positive_scores[:, att_i], bins=int(1/0.0001), min=0, max=1)
+                    self.negative_distributions[idx][att_i] += torch.histc(negative_scores[:, att_i], bins=int(1/0.0001), min=0, max=1)
     
     def predict_by_feat(self,
                         cls_scores: List[Tensor],
