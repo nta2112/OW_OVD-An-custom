@@ -880,8 +880,8 @@ class OurHead(YOLOv8Head):
             return
         
         with torch.no_grad():
-            att_scores = att_scores.detach()
-            assigned_scores = assigned_scores.detach()
+            att_scores = att_scores.detach().cpu()
+            assigned_scores = assigned_scores.detach().cpu()
             
             num_att = att_scores.shape[-1]
             num_known = assigned_scores.shape[-1]
@@ -894,9 +894,13 @@ class OurHead(YOLOv8Head):
                 positive = (assigned_scores >= thr)
                 positive_scores = att_scores[positive]
                 negative_scores = att_scores[~positive]
+                
+                dist_device = self.positive_distributions[idx][0].device
                 for att_i in range(num_att):
-                    self.positive_distributions[idx][att_i] += torch.histc(positive_scores[:, att_i], bins=int(1/0.0001), min=0, max=1)
-                    self.negative_distributions[idx][att_i] += torch.histc(negative_scores[:, att_i], bins=int(1/0.0001), min=0, max=1)
+                    pos_hist = torch.histc(positive_scores[:, att_i], bins=int(1/0.0001), min=0, max=1)
+                    neg_hist = torch.histc(negative_scores[:, att_i], bins=int(1/0.0001), min=0, max=1)
+                    self.positive_distributions[idx][att_i] += pos_hist.to(dist_device)
+                    self.negative_distributions[idx][att_i] += neg_hist.to(dist_device)
     
     def predict_by_feat(self,
                         cls_scores: List[Tensor],
