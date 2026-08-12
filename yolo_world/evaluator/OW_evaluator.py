@@ -562,14 +562,14 @@ class OWODEvaluator(BaseMetric):
         self._logger.info('avg_precision: ' + str(avg_precision_unk))
 
         ret = OrderedDict()
-        mAP = {iou: np.mean(x) for iou, x in aps.items()}
+        mAP = {iou: np.nanmean(x) for iou, x in aps.items()}
         ret["bbox"] = {
             "AP": float(np.mean(list(mAP.values()))),
             "AP50": float(mAP[50]),
             'Unknown Recall50': float(recs[50][-1]),
-            'Prev class AP50': float(np.mean(aps[50][:self.prev_intro_cls]) if self.prev_intro_cls > 0 else 0),
-            'Current class AP50': float(np.mean(aps[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls])),
-            'Known AP50':  float(np.mean(aps[50][:self.prev_intro_cls + self.curr_intro_cls]))
+            'Prev class AP50': float(np.nanmean(aps[50][:self.prev_intro_cls]) if self.prev_intro_cls > 0 else 0),
+            'Current class AP50': float(np.nanmean(aps[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls])),
+            'Known AP50':  float(np.nanmean(aps[50][:self.prev_intro_cls + self.curr_intro_cls]))
         }
 
         total_num_unk_det_as_known = {iou: np.sum(x) for iou, x in unk_det_as_knowns.items()}
@@ -579,43 +579,44 @@ class OWODEvaluator(BaseMetric):
         self._logger.info('total_num_unk ' + str(total_num_unk))
 
         # Extra logging of class-wise APs
-        self._logger.info(self._class_names)
-        self._logger.info("AP50: " + str(['%.1f' % x for x in aps[50]]))
-        self._logger.info("Precisions50: " + str(['%.1f' % x for x in precs[50]]))
-        self._logger.info("Recall50: " + str(['%.1f' % x for x in recs[50]]))
+        self._class_names_clean = [str(x) for x in self._class_names]
+        self._logger.info(self._class_names_clean)
+        self._logger.info("AP50: " + str(['%.1f' % x if not np.isnan(x) else 'nan' for x in aps[50]]))
+        self._logger.info("Precisions50: " + str(['%.1f' % x if not np.isnan(x) else 'nan' for x in precs[50]]))
+        self._logger.info("Recall50: " + str(['%.1f' % x if not np.isnan(x) else 'nan' for x in recs[50]]))
 
         if self.prev_intro_cls > 0:
-            # self._logger.info("\nPrev class AP__: " + str(np.mean(avg_precs[:self.prev_intro_cls])))
-            self._logger.info("Prev class AP50: " + str(np.mean(aps[50][:self.prev_intro_cls])))
-            self._logger.info("Prev class Precisions50: " + str(np.mean(precs[50][:self.prev_intro_cls])))
-            self._logger.info("Prev class Recall50: " + str(np.mean(recs[50][:self.prev_intro_cls])))
-            ret["Prev class AP50"] = float(np.mean(aps[50][:self.prev_intro_cls]))
-            ret['Prev class Precisions50'] = float(np.mean(precs[50][:self.prev_intro_cls]))
-            ret['Prev class Recall50'] = float(np.mean(recs[50][:self.prev_intro_cls]))
-        # self._logger.info("\nCurrent class AP__: " + str(np.mean(avg_precs[self.prev_intro_cls:self.curr_intro_cls])))
-        self._logger.info("Current class AP50: " + str(np.mean(aps[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls])))
-        self._logger.info("Current class Precisions50: " + str(np.mean(precs[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls])))
-        self._logger.info("Current class Recall50: " + str(np.mean(recs[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls])))
-        # self._logger.info("Current class AP75: " + str(np.mean(aps[75][self.prev_intro_cls:self.curr_intro_cls])))
+            # self._logger.info("\nPrev class AP__: " + str(np.nanmean(avg_precs[:self.prev_intro_cls])))
+            self._logger.info("Prev class AP50: " + str(np.nanmean(aps[50][:self.prev_intro_cls])))
+            self._logger.info("Prev class Precisions50: " + str(np.nanmean(precs[50][:self.prev_intro_cls])))
+            self._logger.info("Prev class Recall50: " + str(np.nanmean(recs[50][:self.prev_intro_cls])))
+            ret["Prev class AP50"] = float(np.nanmean(aps[50][:self.prev_intro_cls]))
+            ret['Prev class Precisions50'] = float(np.nanmean(precs[50][:self.prev_intro_cls]))
+            ret['Prev class Recall50'] = float(np.nanmean(recs[50][:self.prev_intro_cls]))
+        # self._logger.info("\nCurrent class AP__: " + str(np.nanmean(avg_precs[self.prev_intro_cls:self.curr_intro_cls])))
+        self._logger.info("Current class AP50: " + str(np.nanmean(aps[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls])))
+        self._logger.info("Current class Precisions50: " + str(np.nanmean(precs[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls])))
+        self._logger.info("Current class Recall50: " + str(np.nanmean(recs[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls])))
+        # self._logger.info("Current class AP75: " + str(np.nanmean(aps[75][self.prev_intro_cls:self.curr_intro_cls])))
 
-        # self._logger.info("\nKnown AP__: " + str(np.mean(avg_precs[:self.prev_intro_cls + self.curr_intro_cls])))
-        self._logger.info("Known AP50: " + str(np.mean(aps[50][:self.prev_intro_cls + self.curr_intro_cls])))
-        self._logger.info("Known Precisions50: " + str(np.mean(precs[50][:self.prev_intro_cls + self.curr_intro_cls])))
-        self._logger.info("Known Recall50: " + str(np.mean(recs[50][:self.prev_intro_cls + self.curr_intro_cls])))
-        # self._logger.info("Known AP75: " + str(np.mean(aps[75][:self.prev_intro_cls + self.curr_intro_cls])))
+        # self._logger.info("\nKnown AP__: " + str(np.nanmean(avg_precs[:self.prev_intro_cls + self.curr_intro_cls])))
+        self._logger.info("Known AP50: " + str(np.nanmean(aps[50][:self.prev_intro_cls + self.curr_intro_cls])))
+        self._logger.info("Known Precisions50: " + str(np.nanmean(precs[50][:self.prev_intro_cls + self.curr_intro_cls])))
+        self._logger.info("Known Recall50: " + str(np.nanmean(recs[50][:self.prev_intro_cls + self.curr_intro_cls])))
+        # self._logger.info("Known AP75: " + str(np.nanmean(aps[75][:self.prev_intro_cls + self.curr_intro_cls])))
 
         # self._logger.info("\nUnknown AP__: " + str(avg_precs[-1]))
         self._logger.info("Unknown AP50: " + str(aps[50][-1]))
         self._logger.info("Unknown Precisions50: " + str(precs[50][-1]))
         self._logger.info("Unknown Recall50: " + str(recs[50][-1]))
         # self._logger.info("Unknown AP75: " + str(aps[75][-1]))
-        ret["Current class AP50"] = float(np.mean(aps[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls]))
-        ret['Current class Precisions50'] = float(np.mean(precs[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls]))
-        ret['Current class Recall50'] = float(np.mean(recs[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls])
+        ret["Current class AP50"] = float(np.nanmean(aps[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls]))
+        ret['Current class Precisions50'] = float(np.nanmean(precs[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls]))
+        ret['Current class Recall50'] = float(np.nanmean(recs[50][self.prev_intro_cls:self.prev_intro_cls + self.curr_intro_cls])
         )
-        ret["Known AP50"] = float(np.mean(aps[50][:self.prev_intro_cls + self.curr_intro_cls]))
-        ret['Known Precisions50'] = float(np.mean(precs[50][:self.prev_intro_cls + self.curr_intro_cls]))
-        ret['Known Recall50'] = float(np.mean(recs[50][:self.prev_intro_cls + self.curr_intro_cls]))
+        ret["Known AP50"] = float(np.nanmean(aps[50][:self.prev_intro_cls + self.curr_intro_cls]))
+        ret['Known Precisions50'] = float(np.nanmean(precs[50][:self.prev_intro_cls + self.curr_intro_cls]))
+        ret['Known Recall50'] = float(np.nanmean(recs[50][:self.prev_intro_cls + self.curr_intro_cls]))
         
         ret['Unknown AP50'] = float(aps[50][-1])
         ret['Unknown Precisions50'] = float(precs[50][-1])
