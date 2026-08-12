@@ -11,6 +11,7 @@ from mmdet.utils import OptConfigType, InstanceList, OptInstanceList
 from mmdet.models.utils import multi_apply
 from mmyolo.registry import MODELS
 from yolo_world.models.dense_heads.our_head_new import OurHeadModule, OurHead
+from mmyolo.models.utils import gt_instances_preprocess
 
 class TripletLoss(nn.Module):
     def __init__(self, margin=0.3):
@@ -213,6 +214,13 @@ class OurHeadRetrieval(OurHead):
             fg_mask_pre_prior = assign_result['fg_mask_pre_prior']
             assigned_bboxes = assign_result['assigned_bboxes']
             
+            # Prepare gt_info using gt_instances_preprocess
+            if isinstance(batch_data_samples, dict):
+                gt_info = gt_instances_preprocess(batch_data_samples['bboxes_labels'], fg_mask_pre_prior.shape[0])
+            else:
+                batch_gt_instances = [sample.gt_instances for sample in batch_data_samples]
+                gt_info = gt_instances_preprocess(batch_gt_instances, fg_mask_pre_prior.shape[0])
+                
             for i in range(fg_mask_pre_prior.shape[0]):
                 fg_mask = fg_mask_pre_prior[i]
                 if not fg_mask.any():
@@ -220,14 +228,12 @@ class OurHeadRetrieval(OurHead):
                     
                 img_pos_embeds = flatten_ret_embeds[i][fg_mask]
                 
-                # Retrieve from batch_data_samples which could be list or dict
-                if isinstance(batch_data_samples, dict):
-                    gt_instances = batch_data_samples['bboxes_labels'][i]
-                else:
-                    gt_instances = batch_data_samples[i].gt_instances
-                    
-                img_gt_boxes = gt_instances.bboxes.to(assigned_bboxes.device, dtype=assigned_bboxes.dtype)
-                img_gt_labels = gt_instances.labels
+                img_gt_boxes = gt_info[i, :, 1:].to(assigned_bboxes.device, dtype=assigned_bboxes.dtype)
+                img_gt_labels = gt_info[i, :, 0].long().to(assigned_bboxes.device)
+                
+                valid_gt_mask = img_gt_boxes.sum(dim=-1) > 0
+                img_gt_boxes = img_gt_boxes[valid_gt_mask]
+                img_gt_labels = img_gt_labels[valid_gt_mask]
                 
                 img_pos_assigned_boxes = assigned_bboxes[i][fg_mask]
                 
@@ -250,6 +256,13 @@ class OurHeadRetrieval(OurHead):
                 else:
                     gt_inds_list = [gt_inds_list]
                     
+            # Prepare gt_info using gt_instances_preprocess
+            if isinstance(batch_data_samples, dict):
+                gt_info = gt_instances_preprocess(batch_data_samples['bboxes_labels'], len(gt_inds_list))
+            else:
+                batch_gt_instances = [sample.gt_instances for sample in batch_data_samples]
+                gt_info = gt_instances_preprocess(batch_gt_instances, len(gt_inds_list))
+                
             for i, gt_inds in enumerate(gt_inds_list):
                 fg_mask = gt_inds > 0
                 if not fg_mask.any():
@@ -257,15 +270,10 @@ class OurHeadRetrieval(OurHead):
                     
                 img_pos_embeds = flatten_ret_embeds[i][fg_mask]
                 
-                # Retrieve from batch_data_samples which could be list or dict
-                if isinstance(batch_data_samples, dict):
-                    gt_instances = batch_data_samples['bboxes_labels'][i]
-                else:
-                    gt_instances = batch_data_samples[i].gt_instances
-                    
-                gt_labels = gt_instances.labels
+                img_gt_labels = gt_info[i, :, 0].long().to(gt_inds.device)
+                
                 pos_gt_indices = gt_inds[fg_mask] - 1
-                img_pos_labels = gt_labels[pos_gt_indices]
+                img_pos_labels = img_gt_labels[pos_gt_indices]
                 
                 pos_embeddings_list.append(img_pos_embeds)
                 pos_labels_list.append(img_pos_labels)
