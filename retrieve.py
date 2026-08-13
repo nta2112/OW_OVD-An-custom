@@ -233,7 +233,7 @@ def main():
     clip_model.eval()
 
     # 4. Process Query Image
-    print(f"-> Loading query image: {args.query-image}")
+    print(f"-> Loading query image: {args.query_image}")
     query_img_pil = Image.open(args.query_image).convert("RGB")
     width, height = query_img_pil.size
 

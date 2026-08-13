@@ -20,6 +20,14 @@ Usage:
 import argparse
 import os
 import sys
+
+# Add the workspace root to sys.path to resolve yolo_world import issues
+# when running this script from a subdirectory (configs/test/)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+workspace_root = os.path.dirname(os.path.dirname(script_dir))
+if workspace_root not in sys.path:
+    sys.path.insert(0, workspace_root)
+
 import json
 import pickle
 import numpy as np
