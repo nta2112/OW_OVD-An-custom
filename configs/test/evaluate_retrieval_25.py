@@ -60,24 +60,32 @@ def patch_environment():
 
     # 2. Patch version limits BEFORE importing mmdet/mmyolo to prevent AssertionError
     import importlib.util
-    def _patch_file(pkg_name, old_ver, new_ver="2.3.0"):
+    import re
+    def _patch_file(pkg_name, new_ver="2.3.0"):
         try:
             spec = importlib.util.find_spec(pkg_name)
             if spec is not None and spec.origin:
-                with open(spec.origin, "r", encoding="utf-8") as f:
+                init_file = spec.origin
+                with open(init_file, "r", encoding="utf-8") as f:
                     txt = f.read()
-                old_str = f"mmcv_maximum_version = '{old_ver}'"
-                if old_str in txt:
-                    with open(spec.origin, "w", encoding="utf-8") as f:
-                        f.write(txt.replace(old_str, f"mmcv_maximum_version = '{new_ver}'"))
-                    print(f"-> Patched maximum MMCV version limit to {new_ver} in {pkg_name}")
+                pattern = r"(mmcv_maximum_version\s*=\s*['\"])([^'\"]+)(['\"])"
+                new_txt, count = re.subn(pattern, rf"\g<1>{new_ver}\g<3>", txt)
+                if count > 0 and new_txt != txt:
+                    with open(init_file, "w", encoding="utf-8") as f:
+                        f.write(new_txt)
+                    print(f"-> Patched {count} MMCV version limit(s) to {new_ver} in {pkg_name}")
+                    pycache = os.path.join(os.path.dirname(init_file), "__pycache__")
+                    if os.path.exists(pycache):
+                        import shutil
+                        try:
+                            shutil.rmtree(pycache)
+                        except Exception:
+                            pass
         except Exception:
             pass
 
-    _patch_file("mmdet", "2.1.0")
-    _patch_file("mmdet", "2.2.0")
-    _patch_file("mmyolo", "2.1.0")
-    _patch_file("mmyolo", "2.2.0")
+    _patch_file("mmdet")
+    _patch_file("mmyolo")
 
     # 3. Now it is safe to import mmengine and mmyolo
     import mmengine
