@@ -1,7 +1,7 @@
-_base_ = '../configs/test/ip102_t1.py'
+_base_ = '../configs/test/ip102_t4.py'
 
 custom_imports = dict(
-    imports=['NewRetrieval(02).our_head_retrieval_dwopp'],
+    imports=['NewRetrieval_02.our_head_retrieval_dwopp'],
     allow_failed_imports=False
 )
 
@@ -21,7 +21,6 @@ model = dict(
     )
 )
 
-# Training configurations for Kaggle demo: 1 epoch, batch size 16
 max_epochs = 1
 close_mosaic_epochs = 1
 train_batch_size_per_gpu = 16
