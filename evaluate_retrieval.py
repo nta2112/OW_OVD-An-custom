@@ -575,6 +575,7 @@ def main():
                 if fname != "pytorch_model.bin":
                     shutil.copy(os.path.join(local_clip_path, fname), os.path.join(working_clip_path, fname))
             state_dict = torch.load(os.path.join(local_clip_path, "pytorch_model.bin"), map_location="cpu")
+            state_dict = {k: v.contiguous() if isinstance(v, torch.Tensor) else v for k, v in state_dict.items()}
             save_file(state_dict, os.path.join(working_clip_path, "model.safetensors"))
             print(f"-> Successfully converted and saved safetensors to: {working_clip_path}")
         if os.path.exists(working_clip_path):
