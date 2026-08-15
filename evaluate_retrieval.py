@@ -132,7 +132,13 @@ def parse_args():
                         help="Path to save markdown report file")
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu",
                         help="Device to use for inference")
-    parser.add_argument("--clip-model", type=str, default="openai/clip-vit-base-patch32",
+    default_clip = "openai/clip-vit-base-patch32"
+    local_clip_path = "/kaggle/input/models/yujkaggle/openaiclip-vit-base-patch32/pytorch/default/1"
+    if os.path.exists(local_clip_path):
+        default_clip = local_clip_path
+        print(f"-> Detected offline Kaggle CLIP model. Defaulting to: {local_clip_path}")
+        
+    parser.add_argument("--clip-model", type=str, default=default_clip,
                         help="CLIP vision model to use")
     parser.add_argument("--score-thr", type=float, default=0.35,
                         help="Confidence threshold for pest detection")
@@ -621,7 +627,12 @@ def main():
             clip_processor = None
         else:
             if 'clip_model' not in locals() or clip_model is None:
-                clip_model = CLIPModel.from_pretrained(args.clip_model, use_safetensors=True).to(args.device)
+                use_safe = True
+                if os.path.isdir(args.clip_model):
+                    has_safe = any(f.endswith('.safetensors') for f in os.listdir(args.clip_model))
+                    if not has_safe:
+                        use_safe = False
+                clip_model = CLIPModel.from_pretrained(args.clip_model, use_safetensors=use_safe).to(args.device)
                 clip_processor = CLIPProcessor.from_pretrained(args.clip_model)
                 clip_model.eval()
             
