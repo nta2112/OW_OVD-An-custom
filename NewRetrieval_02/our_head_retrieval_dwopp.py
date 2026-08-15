@@ -374,7 +374,8 @@ class OurHeadRetrieval(OurHead):
             # Forward pass through frozen old head module
             with torch.no_grad():
                 old_outs = self.old_head_module(img_feats, txt_feats)
-                old_ret_embeds = old_outs[3]
+                # old_head_module runs in eval mode (training=False), returning a 3-element tuple: (cls_logit, bbox_preds, ret_embed)
+                old_ret_embeds = old_outs[2]
                 
             # Flatten old model features
             flatten_old_ret_embeds = []
