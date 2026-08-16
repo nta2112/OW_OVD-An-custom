@@ -533,25 +533,31 @@ def main():
         except Exception:
             force_reextract_query = True
 
+    detector_model = None
+    clip_model = None
+    clip_processor = None
+
+    def get_models():
+        nonlocal detector_model, clip_model, clip_processor
+        if detector_model is None:
+            detector_model = init_detector(args.config, args.checkpoint, device=args.device)
+            detector_model.eval()
+        if not args.detector_retrieval and clip_model is None:
+            print(f"-> Loading CLIP model: {args.clip_model}")
+            clip_model = CLIPModel.from_pretrained(args.clip_model, local_files_only=True).to(args.device)
+            clip_processor = CLIPProcessor.from_pretrained(args.clip_model, local_files_only=True)
+        return detector_model, clip_model, clip_processor
+
     if os.path.exists(args.query_cache) and not force_reextract_query:
         print(f"-> Loading Query embeddings from cache: {args.query_cache}")
         with open(args.query_cache, "rb") as f:
             query_processed = pickle.load(f)
     else:
         print("-> Extracting Query embeddings...")
-        model = init_detector(args.config, args.checkpoint, device=args.device)
-        model.eval()
+        detector_model, clip_model, clip_processor = get_models()
         
-        if args.detector_retrieval:
-            clip_model = None
-            clip_processor = None
-        else:
-            print(f"-> Loading CLIP model: {args.clip_model}")
-            clip_model = CLIPModel.from_pretrained(args.clip_model, local_files_only=True).to(args.device)
-            clip_processor = CLIPProcessor.from_pretrained(args.clip_model, local_files_only=True)
-            
         query_processed = extract_split_embeddings(
-            query_records, model, clip_model, clip_processor, args.device,
+            query_records, detector_model, clip_model, clip_processor, args.device,
             args.score_thr, "Query Extraction", args.detector_retrieval
         )
         with open(args.query_cache, "wb") as f:
@@ -564,19 +570,10 @@ def main():
             gallery_processed = pickle.load(f)
     else:
         print("-> Extracting Gallery embeddings...")
-        model = init_detector(args.config, args.checkpoint, device=args.device)
-        model.eval()
+        detector_model, clip_model, clip_processor = get_models()
         
-        if args.detector_retrieval:
-            clip_model = None
-            clip_processor = None
-        else:
-            print(f"-> Loading CLIP model: {args.clip_model}")
-            clip_model = CLIPModel.from_pretrained(args.clip_model, local_files_only=True).to(args.device)
-            clip_processor = CLIPProcessor.from_pretrained(args.clip_model, local_files_only=True)
-            
         gallery_processed = extract_split_embeddings(
-            gallery_records, model, clip_model, clip_processor, args.device,
+            gallery_records, detector_model, clip_model, clip_processor, args.device,
             args.score_thr, "Gallery Extraction", args.detector_retrieval
         )
         with open(args.gallery_cache, "wb") as f:
