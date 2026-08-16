@@ -547,8 +547,8 @@ def main():
             clip_processor = None
         else:
             print(f"-> Loading CLIP model: {args.clip_model}")
-            clip_model = CLIPModel.from_pretrained(args.clip_model).to(args.device)
-            clip_processor = CLIPProcessor.from_pretrained(args.clip_model)
+            clip_model = CLIPModel.from_pretrained(args.clip_model, local_files_only=True).to(args.device)
+            clip_processor = CLIPProcessor.from_pretrained(args.clip_model, local_files_only=True)
             
         query_processed = extract_split_embeddings(
             query_records, model, clip_model, clip_processor, args.device,
@@ -572,8 +572,8 @@ def main():
             clip_processor = None
         else:
             print(f"-> Loading CLIP model: {args.clip_model}")
-            clip_model = CLIPModel.from_pretrained(args.clip_model).to(args.device)
-            clip_processor = CLIPProcessor.from_pretrained(args.clip_model)
+            clip_model = CLIPModel.from_pretrained(args.clip_model, local_files_only=True).to(args.device)
+            clip_processor = CLIPProcessor.from_pretrained(args.clip_model, local_files_only=True)
             
         gallery_processed = extract_split_embeddings(
             gallery_records, model, clip_model, clip_processor, args.device,
