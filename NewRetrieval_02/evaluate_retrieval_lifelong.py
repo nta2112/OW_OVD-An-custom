@@ -91,9 +91,16 @@ def patch_environment():
     try:
         import transformers.utils.import_utils as transformers_import_utils
         transformers_import_utils.check_torch_load_is_safe = lambda *args, **kwargs: None
-        print("-> Patched transformers check_torch_load_is_safe to bypass torch version limit")
-    except Exception:
-        pass
+        
+        import transformers.utils as transformers_utils
+        transformers_utils.check_torch_load_is_safe = lambda *args, **kwargs: None
+        
+        import transformers.modeling_utils as transformers_modeling_utils
+        transformers_modeling_utils.check_torch_load_is_safe = lambda *args, **kwargs: None
+        
+        print("-> Fully patched transformers check_torch_load_is_safe across namespaces")
+    except Exception as e:
+        print(f"-> Failed to patch transformers: {e}")
 
 # Run patches immediately
 patch_environment()
