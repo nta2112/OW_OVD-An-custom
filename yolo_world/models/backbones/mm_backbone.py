@@ -70,10 +70,18 @@ class HuggingCLIPLanguageBackbone(BaseModule):
 
         self.frozen_modules = frozen_modules
         self.training_use_cache = training_use_cache
-        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        
+        import os
+        is_local = os.path.isdir(model_name)
+        kaggle_path = '/kaggle/input/models/yujkaggle/openaiclip-vit-base-patch32/pytorch/default/1'
+        if (model_name == 'openai/clip-vit-base-patch32' or 'clip-vit-base-patch32' in model_name) and os.path.exists(kaggle_path):
+            model_name = kaggle_path
+            is_local = True
+            
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=is_local)
         clip_config = CLIPTextConfig.from_pretrained(model_name,
-                                                     attention_dropout=dropout)
-        self.model = CLIPTP.from_pretrained(model_name, config=clip_config)
+                                                     attention_dropout=dropout, local_files_only=is_local)
+        self.model = CLIPTP.from_pretrained(model_name, config=clip_config, local_files_only=is_local)
         self._freeze_modules()
 
     def forward_tokenizer(self, texts):
