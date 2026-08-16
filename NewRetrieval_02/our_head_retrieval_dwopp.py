@@ -231,23 +231,29 @@ class OurHeadRetrieval(OurHead):
         # Projection layer mapping 512-dim text features into 256-dim retrieval space
         self.text_projection = nn.Linear(text_channels, retrieval_dim)
         
-        # Frozen teacher model for distillation, initialized dynamically during task > 1
-        self.old_head_module = None
+        # Frozen teacher model for distillation, initialized statically during __init__ to keep parameters registered on all GPUs
+        self.old_head_module = copy.deepcopy(self.head_module)
+        for p in self.old_head_module.parameters():
+            p.requires_grad = False
+        self.old_head_module.eval()
+        self._old_head_initialized = False
         
         if hasattr(self, 'assigner') and self.assigner is not None:
             self.assigner = AssignerWrapper(self.assigner)
             
     def init_old_model_if_needed(self):
-        """Copies and freezes current loaded weights as the old model (theta_t-1) for DwoPP."""
-        if self.prev_intro_cls > 0 and self.old_head_module is None:
-            print(f"[OurHeadRetrieval] Creating frozen teacher copy from current state for DwoPP distillation.")
-            self.old_head_module = copy.deepcopy(self.head_module)
-            for p in self.old_head_module.parameters():
-                p.requires_grad = False
+        """Copies the loaded weights from head_module to old_head_module in-place for DwoPP."""
+        if self.prev_intro_cls > 0 and not self._old_head_initialized:
+            print(f"[OurHeadRetrieval] Syncing weights to old_head_module for DwoPP distillation.")
+            self.old_head_module.load_state_dict(self.head_module.state_dict())
             self.old_head_module.eval()
+            self._old_head_initialized = True
 
     def loss(self, img_feats: Tuple[Tensor], txt_feats: Tensor,
              batch_data_samples: Union[list, dict], fusion_att: bool=False) -> dict:
+        
+        # Unconditionally initialize/sync the old model weights on all ranks
+        self.init_old_model_if_needed()
         
         if hasattr(self, 'assigner') and self.assigner is not None:
             if not isinstance(self.assigner, AssignerWrapper):
@@ -457,11 +463,14 @@ class OurHeadRetrieval(OurHead):
             predictions = self.predict_by_feat(*det_outs,
                                                batch_img_metas=batch_img_metas,
                                                rescale=rescale)
-            
         # Align visual features of detected boundary boxes using ROI Align pooling
+        # Avoid shape mismatch on DDP all_gather during validation if GPUs have different box counts
+        import torch.distributed as dist
+        is_ddp = dist.is_available() and dist.is_initialized()
+        
         import torchvision.ops as tv_ops
         for i, pred in enumerate(predictions):
-            if len(pred) == 0:
+            if len(pred) == 0 or is_ddp:
                 pred.features = pred.bboxes.new_zeros((0, self.retrieval_dim))
                 continue
                 
