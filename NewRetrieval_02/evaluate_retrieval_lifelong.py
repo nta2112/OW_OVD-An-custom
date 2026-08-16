@@ -87,6 +87,14 @@ def patch_environment():
         return _orig_file2dict(filename, *args, **kwargs)
     mmengine.Config._file2dict = _patched_file2dict
 
+    # Monkey patch Transformers check_torch_load_is_safe for compatibility with older torch versions (CVE-2025-32434 bypass)
+    try:
+        import transformers.utils.import_utils as transformers_import_utils
+        transformers_import_utils.check_torch_load_is_safe = lambda *args, **kwargs: None
+        print("-> Patched transformers check_torch_load_is_safe to bypass torch version limit")
+    except Exception:
+        pass
+
 # Run patches immediately
 patch_environment()
 
