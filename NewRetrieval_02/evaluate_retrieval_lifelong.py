@@ -307,11 +307,15 @@ def extract_split_embeddings(
     device: str, 
     score_thr: float,
     desc: str,
-    use_detector_retrieval: bool = False
+    use_detector_retrieval: bool = False,
+    batch_size: int = 64
 ) -> List[Dict]:
     processed_records = []
+    crops = []
+    valid_indices = []
     
-    for item in tqdm(records, desc=desc):
+    # Bước 1: Phát hiện đối tượng và cắt ảnh (Detection & Crop)
+    for idx, item in enumerate(tqdm(records, desc=f"{desc} (BBox Detection)")):
         try:
             img_pil = Image.open(item['image_path']).convert("RGB")
             width, height = img_pil.size
@@ -385,8 +389,31 @@ def extract_split_embeddings(
                             pooled_levels.append(pooled)
                         feature_vector = torch.stack(pooled_levels, dim=0).mean(dim=0)[0]
                         feature_vector = F.normalize(feature_vector, p=2, dim=0).cpu().numpy()
-            else:
-                inputs = clip_processor(images=cropped_img, return_tensors="pt").to(device)
+            
+            processed_records.append({
+                "image_path": item['image_path'],
+                "class_id": item['class_id'],
+                "class_label": item['class_label'],
+                "feature_vector": feature_vector,
+                "unknown_score": float(unknown_score)
+            })
+            
+            if not use_detector_retrieval:
+                crops.append(cropped_img)
+                valid_indices.append(len(processed_records) - 1)
+                
+        except Exception as e:
+            continue
+            
+    # Bước 2: Trích xuất song song theo Batch bằng CLIP
+    if not use_detector_retrieval and crops:
+        num_crops = len(crops)
+        for i in tqdm(range(0, num_crops, batch_size), desc=f"{desc} (CLIP Batch Inference)"):
+            batch_crops = crops[i:i + batch_size]
+            batch_idxs = valid_indices[i:i + batch_size]
+            
+            try:
+                inputs = clip_processor(images=batch_crops, return_tensors="pt", padding=True).to(device)
                 with torch.no_grad():
                     features = clip_model.get_image_features(**inputs)
                     if not isinstance(features, torch.Tensor):
@@ -397,18 +424,13 @@ def extract_split_embeddings(
                         elif isinstance(features, (list, tuple)):
                             features = features[0]
                     features = features / features.norm(dim=-1, keepdim=True)
-                    feature_vector = features.cpu().numpy()[0]
+                    features_np = features.cpu().numpy()
+                    
+                for j, f_np in enumerate(features_np):
+                    processed_records[batch_idxs[j]]["feature_vector"] = f_np
+            except Exception as e:
+                print(f"Error extracting batch {i}: {e}")
                 
-            processed_records.append({
-                "image_path": item['image_path'],
-                "class_id": item['class_id'],
-                "class_label": item['class_label'],
-                "feature_vector": feature_vector,
-                "unknown_score": float(unknown_score)
-            })
-        except Exception as e:
-            continue
-            
     return processed_records
 
 
