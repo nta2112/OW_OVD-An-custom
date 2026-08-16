@@ -512,6 +512,26 @@ def evaluate_retrieval(query_data: List[Dict], gallery_data: List[Dict]) -> Tupl
 
 def main():
     args = parse_args()
+    
+    # Convert local Kaggle CLIP model to safetensors if needed to bypass PyTorch < 2.6 CVE-2025-32434 check
+    local_clip_path = "/kaggle/input/models/yujkaggle/openaiclip-vit-base-patch32/pytorch/default/1"
+    working_clip_path = "/kaggle/working/openaiclip-vit-base-patch32"
+    if args.clip_model == local_clip_path or (os.path.exists(local_clip_path) and os.path.samefile(args.clip_model, local_clip_path) if os.path.exists(args.clip_model) else False):
+        if os.path.exists(local_clip_path) and not os.path.exists(os.path.join(working_clip_path, "model.safetensors")):
+            print("-> Converting local pytorch_model.bin to safetensors to bypass PyTorch < 2.6 security restriction...")
+            import shutil
+            from safetensors.torch import save_file
+            os.makedirs(working_clip_path, exist_ok=True)
+            for fname in os.listdir(local_clip_path):
+                if fname != "pytorch_model.bin":
+                    shutil.copy(os.path.join(local_clip_path, fname), os.path.join(working_clip_path, fname))
+            state_dict = torch.load(os.path.join(local_clip_path, "pytorch_model.bin"), map_location="cpu")
+            state_dict = {k: v.contiguous() if isinstance(v, torch.Tensor) else v for k, v in state_dict.items()}
+            save_file(state_dict, os.path.join(working_clip_path, "model.safetensors"))
+            print(f"-> Successfully converted and saved safetensors to: {working_clip_path}")
+        if os.path.exists(working_clip_path):
+            args.clip_model = working_clip_path
+
     print("="*60)
     print("      LIFELONG IMAGE RETRIEVAL EVALUATION PIPELINE      ")
     print("="*60)
