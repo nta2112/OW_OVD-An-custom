@@ -464,13 +464,9 @@ class OurHeadRetrieval(OurHead):
                                                batch_img_metas=batch_img_metas,
                                                rescale=rescale)
         # Align visual features of detected boundary boxes using ROI Align pooling
-        # Avoid shape mismatch on DDP all_gather during validation if GPUs have different box counts
-        import torch.distributed as dist
-        is_ddp = dist.is_available() and dist.is_initialized()
-        
         import torchvision.ops as tv_ops
         for i, pred in enumerate(predictions):
-            if len(pred) == 0 or is_ddp:
+            if len(pred) == 0:
                 pred.features = pred.bboxes.new_zeros((0, self.retrieval_dim))
                 continue
                 
