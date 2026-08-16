@@ -143,7 +143,7 @@ def parse_args():
                         help="Path to save markdown report file")
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu",
                         help="Device to use for inference")
-    parser.add_argument("--clip-model", type=str, default="openai/clip-vit-base-patch32",
+    parser.add_argument("--clip-model", type=str, default="/kaggle/input/models/yujkaggle/openaiclip-vit-base-patch32/pytorch/default/1",
                         help="CLIP vision model to use")
     parser.add_argument("--score-thr", type=float, default=0.35,
                         help="Confidence threshold for pest detection")
