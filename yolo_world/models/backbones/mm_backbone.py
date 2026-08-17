@@ -81,7 +81,7 @@ class HuggingCLIPLanguageBackbone(BaseModule):
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=is_local)
         clip_config = CLIPTextConfig.from_pretrained(model_name,
                                                      attention_dropout=dropout, local_files_only=is_local)
-        self.model = CLIPTP.from_pretrained(model_name, config=clip_config, local_files_only=is_local)
+        self.model = CLIPTP.from_pretrained(model_name, config=clip_config, local_files_only=is_local, low_cpu_mem_usage=False)
         self._freeze_modules()
 
     def forward_tokenizer(self, texts):

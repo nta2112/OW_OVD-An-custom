@@ -586,7 +586,7 @@ def main():
             detector_model.eval()
         if not args.detector_retrieval and clip_model is None:
             print(f"-> Loading CLIP model: {args.clip_model}")
-            clip_model = CLIPModel.from_pretrained(args.clip_model, local_files_only=True).to(args.device)
+            clip_model = CLIPModel.from_pretrained(args.clip_model, local_files_only=True, low_cpu_mem_usage=False).to(args.device)
             clip_processor = CLIPProcessor.from_pretrained(args.clip_model, local_files_only=True)
         return detector_model, clip_model, clip_processor
 
