@@ -413,7 +413,7 @@ class OurHead(YOLOv8Head):
         """Perform forward propagation of the detection head and predict
         detection results on the features of the upstream network.
         """
-        if self.att_embeddings.shape[0] != 25 * (self.num_classes):
+        if not getattr(self, 'select_all_attr', False) and self.att_embeddings.shape[0] != 25 * (self.num_classes):
             self.select_att()
         
         batch_img_metas = [
