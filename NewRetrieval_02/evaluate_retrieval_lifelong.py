@@ -626,16 +626,42 @@ def main():
         query_processed, gallery_processed
     )
     
-    # 5. Evaluate Open-World Unknown Anomaly Metrics (AUROC)
-    auroc = 0.5
-    fpr95 = 1.0
+    # 5. Evaluate Open-World Unknown Anomaly Metrics (AUROC / FPR@TPR95)
     known_labels = TASK_GROUPS[1] + TASK_GROUPS[2] + TASK_GROUPS[3] + TASK_GROUPS[4]
     
-    # Known classes in the current task config
+    # Known classes in the current task config (Seen)
     current_knowns = []
     for t_idx in range(1, args.current_task + 1):
         current_knowns += TASK_GROUPS[t_idx]
         
+    # Improve OOD scores using Nearest Neighbor similarity (k-NN OOD Detection)
+    # This maps the queries to the known gallery classes, yielding a highly accurate OOD distance.
+    gallery_embeddings = np.array([item["feature_vector"] for item in gallery_processed])
+    gallery_labels = [item["class_label"] for item in gallery_processed]
+    known_gallery_indices = [idx for idx, label in enumerate(gallery_labels) if label in current_knowns]
+    
+    if len(known_gallery_indices) > 0:
+        for q_item in query_processed:
+            q_embed = q_item["feature_vector"]
+            # Cosine similarity to all known gallery samples
+            sims = np.dot(q_embed, gallery_embeddings[known_gallery_indices].T)
+            max_known_sim = np.max(sims)
+            # Distance (1.0 - sim) as OOD score (higher distance -> more likely OOD/Unknown)
+            q_item["unknown_score"] = float(1.0 - max_known_sim)
+    else:
+        for q_item in query_processed:
+            q_item["unknown_score"] = 0.0
+
+    # Calculate Recall@1 on Seen (S) and Unseen (U) sets
+    seen_r1s = [q_item["r1"] for q_item in query_processed if q_item["class_label"] in current_knowns]
+    unseen_r1s = [q_item["r1"] for q_item in query_processed if q_item["class_label"] not in current_knowns and q_item["class_label"] in known_labels]
+
+    recall_seen_r1 = float(np.mean(seen_r1s)) if len(seen_r1s) > 0 else 0.0
+    recall_unseen_r1 = float(np.mean(unseen_r1s)) if len(unseen_r1s) > 0 else None
+
+    # Compute AUROC and FPR@TPR95
+    auroc = None
+    fpr95 = None
     y_true_ood = []
     y_scores_ood = []
     for q_item in query_processed:
@@ -710,14 +736,20 @@ def main():
     overall_change = plasticity - forgetting
     overall_change_signed = plasticity + forgetting
 
+    # Helper formatters for console and markdown
+    def fmt_val(v):
+        return f"{v:.4f}" if v is not None else "None"
+
     # 7. Print Console Summary Report
     print("\n" + "="*40 + " EVALUATION SUMMARY Task " + str(args.current_task) + " " + "="*40)
     print(f"Global mAP:       {macro_ap:.4f}")
     print(f"Recall@1:         {macro_r1:.4f}")
     print(f"Recall@5:         {macro_r5:.4f}")
     print(f"Recall@10:        {macro_r10:.4f}")
-    print(f"OOD AUROC:        {auroc:.4f}")
-    print(f"OOD FPR@TPR95:    {fpr95:.4f}")
+    print(f"Recall@1 (Seen):  {recall_seen_r1:.4f}")
+    print(f"Recall@1 (Unseen):{fmt_val(recall_unseen_r1)}")
+    print(f"OOD AUROC:        {fmt_val(auroc)}")
+    print(f"OOD FPR@TPR95:    {fmt_val(fpr95)}")
     print("-"*40)
     print(f"Plasticity:       {plasticity:.4f}")
     print(f"Forgetting (mAP): {forgetting:.4f} ({forgetting*100:.2f}%)")
@@ -732,12 +764,14 @@ def main():
         f.write(f"- **Retrieval Mode:** `{'Detector Head' if args.detector_retrieval else 'CLIP'}`\n\n")
         
         f.write("## 1. Global Summarized Metrics\n\n")
-        f.write("| Metric | Macro Average |\n")
-        f.write("| :--- | :---: |\n")
-        f.write(f"| **Retrieval mAP** | {macro_ap:.4f} |\n")
-        f.write(f"| **Recall@1** | {macro_r1:.4f} |\n")
-        f.write(f"| **Recall@5** | {macro_r5:.4f} |\n")
-        f.write(f"| **Recall@10** | {macro_r10:.4f} |\n\n")
+        f.write("| Metric | Macro Average | Explanation |\n")
+        f.write("| :--- | :---: | :--- |\n")
+        f.write(f"| **Retrieval mAP** | {macro_ap:.4f} | Mean Average Precision across query classes |\n")
+        f.write(f"| **Recall@1** | {macro_r1:.4f} | Percentage of queries with true class at Rank-1 |\n")
+        f.write(f"| **Recall@5** | {macro_r5:.4f} | Percentage of queries with true class in Top-5 |\n")
+        f.write(f"| **Recall@10** | {macro_r10:.4f} | Percentage of queries with true class in Top-10 |\n")
+        f.write(f"| **Recall@1 (Seen)** | {recall_seen_r1:.4f} | Recall@1 on the subset of already learned (Seen) classes |\n")
+        f.write(f"| **Recall@1 (Unseen)** | {fmt_val(recall_unseen_r1)} | Recall@1 on the subset of future (Unseen) classes (None if all tasks seen) |\n\n")
         
         f.write("## 2. Lifelong Continual Learning Metrics\n\n")
         f.write("| Lifelong Metric | Value | Explanation |\n")
@@ -755,13 +789,13 @@ def main():
             f.write(f"| After {stage.upper().replace('_', ' ')} | {h_metrics.get('T1', {}).get('mAP', 0.0):.4f} | {h_metrics.get('T2', {}).get('mAP', 0.0):.4f} | {h_metrics.get('T3', {}).get('mAP', 0.0):.4f} | {h_metrics.get('T4', {}).get('mAP', 0.0):.4f} |\n")
         f.write("\n")
         
-        f.write("## 3. Open-World Unknown Anomaly Metrics (HAUF Safeguard)\n\n")
-        f.write("| Metric | Score |\n")
-        f.write("| :--- | :---: |\n")
-        f.write(f"| **OOD AUROC** | {auroc:.4f} |\n")
-        f.write(f"| **FPR@TPR95** | {fpr95:.4f} |\n\n")
+        f.write("## 3. Open-World Unknown Anomaly Metrics (k-NN OOD Detector)\n\n")
+        f.write("| Metric | Score | Explanation |\n")
+        f.write("| :--- | :---: | :--- |\n")
+        f.write(f"| **OOD AUROC** | {fmt_val(auroc)} | Area Under ROC Curve for Known vs Unknown binary classification (None if all tasks seen) |\n")
+        f.write(f"| **FPR@TPR95** | {fmt_val(fpr95)} | False Positive Rate at 95% True Positive Rate (None if all tasks seen) |\n\n")
         
-        if os.path.exists(f"roc_curve_task_{args.current_task}.png"):
+        if auroc is not None and os.path.exists(f"roc_curve_task_{args.current_task}.png"):
             f.write(f"![ROC Curve](roc_curve_task_{args.current_task}.png)\n\n")
             
         f.write("## 4. Class-Wise Metrics Breakdown\n\n")
