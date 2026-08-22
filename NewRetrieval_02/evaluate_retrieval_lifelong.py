@@ -8,6 +8,13 @@ metrics (Plasticity, Forgetting, and Overall Change) across task boundaries.
 import argparse
 import os
 import sys
+
+# Clear distributed environment variables to prevent MMEngine/PyTorch DDP initialization deadlock
+# when run in single-process mode inside a Jupyter/Kaggle multi-GPU environment.
+for env_var in ["WORLD_SIZE", "RANK", "LOCAL_RANK", "MASTER_ADDR", "MASTER_PORT"]:
+    if env_var in os.environ:
+        del os.environ[env_var]
+
 import json
 import pickle
 import numpy as np
