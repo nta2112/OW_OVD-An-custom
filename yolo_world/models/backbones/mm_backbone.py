@@ -72,10 +72,19 @@ class HuggingCLIPLanguageBackbone(BaseModule):
         self.training_use_cache = training_use_cache
         
         import os
+        import shutil
         is_local = os.path.isdir(model_name)
         kaggle_path = '/kaggle/input/models/yujkaggle/openaiclip-vit-base-patch32/pytorch/default/1'
+        tmp_path = '/tmp/clip_model'
         if (model_name == 'openai/clip-vit-base-patch32' or 'clip-vit-base-patch32' in model_name) and os.path.exists(kaggle_path):
-            model_name = kaggle_path
+            if not os.path.exists(tmp_path):
+                try:
+                    print(f"-> Copying CLIP model from {kaggle_path} to {tmp_path} to prevent mmap hang...")
+                    shutil.copytree(kaggle_path, tmp_path, dirs_exist_ok=True)
+                except Exception as e:
+                    print(f"-> Failed to copy model: {e}")
+                    tmp_path = kaggle_path
+            model_name = tmp_path
             is_local = True
             
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, local_files_only=is_local)

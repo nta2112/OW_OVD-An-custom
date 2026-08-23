@@ -542,9 +542,18 @@ def evaluate_retrieval(query_data: List[Dict], gallery_data: List[Dict]) -> Tupl
 def main():
     args = parse_args()
     
+    import shutil
     local_clip_path = "/kaggle/input/models/yujkaggle/openaiclip-vit-base-patch32/pytorch/default/1"
+    tmp_clip_path = "/tmp/clip_model"
     if os.path.exists(local_clip_path):
-        args.clip_model = local_clip_path
+        if not os.path.exists(tmp_clip_path):
+            try:
+                print(f"-> Copying CLIP model from {local_clip_path} to {tmp_clip_path} to prevent mmap hang...")
+                shutil.copytree(local_clip_path, tmp_clip_path, dirs_exist_ok=True)
+            except Exception as e:
+                print(f"-> Failed to copy model: {e}")
+                tmp_clip_path = local_clip_path
+        args.clip_model = tmp_clip_path
 
     print("="*60)
     print("      LIFELONG IMAGE RETRIEVAL EVALUATION PIPELINE      ")
