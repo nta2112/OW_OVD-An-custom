@@ -118,6 +118,12 @@ import cv2
 from mmdet.apis import init_detector, inference_detector
 from mmdet.structures import DetDataSample
 from transformers import CLIPProcessor, CLIPModel
+import transformers.utils.logging as hf_logging
+
+# Prevent Jupyter stdout buffer deadlocks from fast tqdm progress bars
+hf_logging.disable_progress_bar()
+# Prevent PyTorch OpenMP thread deadlocks during fast CPU weight initialization
+torch.set_num_threads(1)
 
 # 25 custom classes of IP102 subset
 class_names = ['14', '15', '16', '18', '22', '23', '24', '25', '26', '37', '38', '39', '45', '46', '47', '48', '49', '50', '51', '66', '67', '69', '70', '86', '101']

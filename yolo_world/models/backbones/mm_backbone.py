@@ -9,7 +9,8 @@ from mmyolo.registry import MODELS
 from mmdet.utils import OptMultiConfig, ConfigType
 from transformers import (AutoTokenizer, AutoModel, CLIPTextConfig)
 from transformers import CLIPTextModelWithProjection as CLIPTP
-
+import transformers.utils.logging as hf_logging
+hf_logging.disable_progress_bar()
 
 @MODELS.register_module()
 class HuggingVisionBackbone(BaseModule):
