@@ -107,7 +107,7 @@ import torch
 import cv2
 from mmdet.apis import init_detector, inference_detector
 from mmdet.structures import DetDataSample
-from transformers import CLIPProcessor, CLIPModel
+from image_retrieval import load_feature_extractor, extract_visual_features
 
 
 def parse_args():
@@ -128,8 +128,12 @@ def parse_args():
                         help="Path to save the output visualization image")
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu",
                         help="Device to use for inference")
-    parser.add_argument("--clip-model", type=str, default="openai/clip-vit-base-patch32",
-                        help="CLIP model to use")
+    parser.add_argument("--extractor-type", type=str, default="clip", choices=["clip", "dinov2", "vit"],
+                        help="Feature extractor type to use")
+    parser.add_argument("--extractor-model", type=str, default=None,
+                        help="Feature extractor model repository or local path")
+    parser.add_argument("--clip-model", type=str, default=None,
+                        help="Deprecated alias for --extractor-model")
     parser.add_argument("--score-thr", type=float, default=0.35,
                         help="Confidence threshold for pest detection")
     return parser.parse_args()
@@ -229,16 +233,29 @@ def main():
         gallery_records = pickle.load(f)
     print(f"-> Loaded {len(gallery_records)} gallery records from {args.gallery_index}")
 
+    # Resolve model and backward compatibility
+    if args.extractor_model is None:
+        if args.clip_model is not None:
+            args.extractor_model = args.clip_model
+        else:
+            if args.extractor_type == "clip":
+                args.extractor_model = "openai/clip-vit-base-patch32"
+            elif args.extractor_type == "dinov2":
+                args.extractor_model = "facebook/dinov2-base"
+            else:
+                args.extractor_model = "google/vit-base-patch16-224"
+
     # 2. Load OW-OVD Detector Model
     print(f"-> Initializing Detector model on {args.device}...")
     model = init_detector(args.config, args.checkpoint, device=args.device)
     model.eval()
 
-    # 3. Load CLIP model
-    print(f"-> Loading CLIP model {args.clip_model}...")
-    clip_model = CLIPModel.from_pretrained(args.clip_model, use_safetensors=True).to(args.device)
-    clip_processor = CLIPProcessor.from_pretrained(args.clip_model)
-    clip_model.eval()
+    # 3. Load feature extractor model
+    extractor_model, extractor_processor = load_feature_extractor(
+        model_name=args.extractor_model,
+        extractor_type=args.extractor_type,
+        device=args.device
+    )
 
     # 4. Process Query Image
     print(f"-> Loading query image: {args.query_image}")
@@ -293,19 +310,15 @@ def main():
         else:
             print(f"-> Anomaly score (P_u = {p_u:.4f}) is below threshold. Pest considered a known species.")
 
-    # Stage 2: Extract visual embedding
-    inputs = clip_processor(images=cropped_img, return_tensors="pt").to(args.device)
+    # Stage 2: Extract visual embedding using selected extractor
     with torch.no_grad():
-        features = clip_model.get_image_features(**inputs)
-        # Unpack if returned as BaseModelOutputWithPooling
-        if not isinstance(features, torch.Tensor):
-            if hasattr(features, "pooler_output") and features.pooler_output is not None:
-                features = features.pooler_output
-            elif hasattr(features, "image_embeds") and features.image_embeds is not None:
-                features = features.image_embeds
-            elif isinstance(features, (list, tuple)):
-                features = features[0]
-        features = features / features.norm(dim=-1, keepdim=True)
+        features = extract_visual_features(
+            model=extractor_model,
+            processor=extractor_processor,
+            images=[cropped_img],
+            extractor_type=args.extractor_type,
+            device=args.device
+        )
         query_embedding = features.cpu().numpy()[0]
 
     # Stage 3: Match and rank gallery

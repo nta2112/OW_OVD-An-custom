@@ -109,7 +109,7 @@ import torch.nn.functional as F
 import cv2
 from mmdet.apis import init_detector, inference_detector
 from mmdet.structures import DetDataSample
-from transformers import CLIPProcessor, CLIPModel
+from image_retrieval import load_feature_extractor, extract_visual_features
 
 
 def parse_args():
@@ -138,8 +138,12 @@ def parse_args():
         default_clip = local_clip_path
         print(f"-> Detected offline Kaggle CLIP model. Defaulting to: {local_clip_path}")
         
+    parser.add_argument("--extractor-type", type=str, default="clip", choices=["clip", "dinov2", "vit"],
+                        help="Feature extractor type to use")
+    parser.add_argument("--extractor-model", type=str, default=None,
+                        help="Feature extractor model repository or local path")
     parser.add_argument("--clip-model", type=str, default=default_clip,
-                        help="CLIP vision model to use")
+                        help="CLIP vision model to use (Deprecated alias)")
     parser.add_argument("--score-thr", type=float, default=0.35,
                         help="Confidence threshold for pest detection")
     parser.add_argument("--detector-retrieval", action="store_true",
@@ -319,12 +323,13 @@ def calculate_fpr_at_tpr95(fpr, tpr) -> float:
 def extract_split_embeddings(
     records: List[Dict], 
     model, 
-    clip_model, 
-    clip_processor, 
+    extractor_model, 
+    extractor_processor, 
     device: str, 
     score_thr: float,
     desc: str,
     use_detector_retrieval: bool = False,
+    extractor_type: str = "clip",
     batch_size: int = 64
 ) -> List[Dict]:
     """
@@ -431,26 +436,22 @@ def extract_split_embeddings(
         except Exception as e:
             continue
             
-    # Bước 2: Trích xuất song song theo Batch bằng CLIP
+    # Bước 2: Trích xuất song song theo Batch bằng bộ trích xuất đặc trưng visual
     if not use_detector_retrieval and crops:
         num_crops = len(crops)
-        for i in tqdm(range(0, num_crops, batch_size), desc=f"{desc} (CLIP Batch Inference)"):
+        for i in tqdm(range(0, num_crops, batch_size), desc=f"{desc} ({extractor_type.upper()} Batch Inference)"):
             batch_crops = crops[i:i + batch_size]
             batch_idxs = valid_indices[i:i + batch_size]
             
             try:
-                inputs = clip_processor(images=batch_crops, return_tensors="pt", padding=True).to(device)
                 with torch.no_grad():
-                    features = clip_model.get_image_features(**inputs)
-                    # Unpack if returned as BaseModelOutputWithPooling
-                    if not isinstance(features, torch.Tensor):
-                        if hasattr(features, "pooler_output") and features.pooler_output is not None:
-                            features = features.pooler_output
-                        elif hasattr(features, "image_embeds") and features.image_embeds is not None:
-                            features = features.image_embeds
-                        elif isinstance(features, (list, tuple)):
-                            features = features[0]
-                    features = features / features.norm(dim=-1, keepdim=True)
+                    features = extract_visual_features(
+                        model=extractor_model,
+                        processor=extractor_processor,
+                        images=batch_crops,
+                        extractor_type=extractor_type,
+                        device=device
+                    )
                     features_np = features.cpu().numpy()
                     
                 for j, f_np in enumerate(features_np):
@@ -584,10 +585,22 @@ def save_report(
 def main():
     args = parse_args()
     
+    # Resolve model and backward compatibility
+    if args.extractor_model is None:
+        if args.clip_model is not None:
+            args.extractor_model = args.clip_model
+        else:
+            if args.extractor_type == "clip":
+                args.extractor_model = "openai/clip-vit-base-patch32"
+            elif args.extractor_type == "dinov2":
+                args.extractor_model = "facebook/dinov2-base"
+            else:
+                args.extractor_model = "google/vit-base-patch16-224"
+                
     # Convert local Kaggle CLIP model to safetensors if needed to bypass PyTorch < 2.6 CVE-2025-32434 check
     local_clip_path = "/kaggle/input/models/yujkaggle/openaiclip-vit-base-patch32/pytorch/default/1"
     working_clip_path = "/kaggle/working/openaiclip-vit-base-patch32"
-    if args.clip_model == local_clip_path or (os.path.exists(local_clip_path) and os.path.samefile(args.clip_model, local_clip_path) if os.path.exists(args.clip_model) else False):
+    if args.extractor_model == local_clip_path or (os.path.exists(local_clip_path) and os.path.samefile(args.extractor_model, local_clip_path) if os.path.exists(args.extractor_model) else False):
         if os.path.exists(local_clip_path) and not os.path.exists(os.path.join(working_clip_path, "model.safetensors")):
             print("-> Converting local pytorch_model.bin to safetensors to bypass PyTorch < 2.6 security restriction...")
             import shutil
@@ -601,7 +614,7 @@ def main():
             save_file(state_dict, os.path.join(working_clip_path, "model.safetensors"))
             print(f"-> Successfully converted and saved safetensors to: {working_clip_path}")
         if os.path.exists(working_clip_path):
-            args.clip_model = working_clip_path
+            args.extractor_model = working_clip_path
 
     print("="*60)
     print("      IP102 RETRIEVAL METRICS EVALUATION PIPELINE      ")
@@ -636,17 +649,26 @@ def main():
         model.eval()
         
         if args.detector_retrieval:
-            clip_model = None
-            clip_processor = None
+            extractor_model = None
+            extractor_processor = None
             print("-> Using detector's own retrieval head for feature extraction (no CLIP).")
         else:
-            clip_model = CLIPModel.from_pretrained(args.clip_model, use_safetensors=True, low_cpu_mem_usage=False).to(args.device)
-            clip_processor = CLIPProcessor.from_pretrained(args.clip_model)
-            clip_model.eval()
+            extractor_model, extractor_processor = load_feature_extractor(
+                model_name=args.extractor_model,
+                extractor_type=args.extractor_type,
+                device=args.device
+            )
         
         query_processed = extract_split_embeddings(
-            query_records, model, clip_model, clip_processor, args.device, args.score_thr, "Processing Query Split",
-            use_detector_retrieval=args.detector_retrieval
+            records=query_records,
+            model=model,
+            extractor_model=extractor_model,
+            extractor_processor=extractor_processor,
+            device=args.device,
+            score_thr=args.score_thr,
+            desc="Processing Query Split",
+            use_detector_retrieval=args.detector_retrieval,
+            extractor_type=args.extractor_type
         )
         with open(args.query_cache, "wb") as f:
             pickle.dump(query_processed, f)
@@ -665,22 +687,26 @@ def main():
             model.eval()
             
         if args.detector_retrieval:
-            clip_model = None
-            clip_processor = None
+            extractor_model = None
+            extractor_processor = None
         else:
-            if 'clip_model' not in locals() or clip_model is None:
-                use_safe = True
-                if os.path.isdir(args.clip_model):
-                    has_safe = any(f.endswith('.safetensors') for f in os.listdir(args.clip_model))
-                    if not has_safe:
-                        use_safe = False
-                clip_model = CLIPModel.from_pretrained(args.clip_model, use_safetensors=use_safe, low_cpu_mem_usage=False).to(args.device)
-                clip_processor = CLIPProcessor.from_pretrained(args.clip_model)
-                clip_model.eval()
+            if 'extractor_model' not in locals() or extractor_model is None:
+                extractor_model, extractor_processor = load_feature_extractor(
+                    model_name=args.extractor_model,
+                    extractor_type=args.extractor_type,
+                    device=args.device
+                )
             
         gallery_processed = extract_split_embeddings(
-            gallery_records, model, clip_model, clip_processor, args.device, args.score_thr, "Processing Gallery Split",
-            use_detector_retrieval=args.detector_retrieval
+            records=gallery_records,
+            model=model,
+            extractor_model=extractor_model,
+            extractor_processor=extractor_processor,
+            device=args.device,
+            score_thr=args.score_thr,
+            desc="Processing Gallery Split",
+            use_detector_retrieval=args.detector_retrieval,
+            extractor_type=args.extractor_type
         )
         # Ensure we add unknown_score field to gallery too, for format consistency
         for item in gallery_processed:
