@@ -444,7 +444,7 @@ class OurHead(YOLOv8Head):
         """Perform forward propagation of the detection head and predict
         detection results on the features of the upstream network.
         """
-        if not getattr(self, 'select_all_attr', False) and self.att_embeddings.shape[0] != 25 * (self.num_classes):
+        if not getattr(self, 'select_all_attr', False) and not getattr(self, 'is_att_selected', False):
             self.select_att()
         
         batch_img_metas = [
@@ -684,6 +684,7 @@ class OurHead(YOLOv8Head):
         # Update self.att_embeddings and self.texts in-place for inference/test
         self.att_embeddings = torch.nn.Parameter(selected_embeddings)
         self.texts = selected_texts
+        self.is_att_selected = True
   
     def get_sim(self, a, b):
         """
