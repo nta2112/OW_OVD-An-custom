@@ -140,16 +140,24 @@ def load_feature_extractor(model_name: str, extractor_type: str = "clip", device
     Loads pretrained feature extractor model and processor from HuggingFace.
     extractor_type: 'clip', 'dinov2', or 'vit'
     """
+    import os
     from transformers import AutoImageProcessor, AutoModel, CLIPProcessor, CLIPModel
     print(f"-> Loading feature extractor ({extractor_type}): {model_name} on {device}...")
     device = torch.device(device if torch.cuda.is_available() else "cpu")
     
+    is_local = os.path.isdir(model_name)
+    
     if extractor_type == "clip":
-        model = CLIPModel.from_pretrained(model_name, use_safetensors=True)
-        processor = CLIPProcessor.from_pretrained(model_name)
+        use_safe = True
+        if is_local:
+            has_safe = any(f.endswith('.safetensors') for f in os.listdir(model_name))
+            if not has_safe:
+                use_safe = False
+        model = CLIPModel.from_pretrained(model_name, use_safetensors=use_safe, local_files_only=is_local)
+        processor = CLIPProcessor.from_pretrained(model_name, local_files_only=is_local)
     else:
-        model = AutoModel.from_pretrained(model_name)
-        processor = AutoImageProcessor.from_pretrained(model_name)
+        model = AutoModel.from_pretrained(model_name, local_files_only=is_local)
+        processor = AutoImageProcessor.from_pretrained(model_name, local_files_only=is_local)
         
     model.to(device)
     model.eval()
