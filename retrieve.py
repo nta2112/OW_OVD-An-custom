@@ -78,6 +78,13 @@ def patch_environment():
     _patch_file("mmdet")
     _patch_file("mmyolo")
 
+    # Spoof mmcv version to bypass strict MMCV maximum version checks in mmdet/mmyolo
+    try:
+        import mmcv
+        mmcv.__version__ = '2.0.1'
+    except Exception:
+        pass
+
     # 3. Now it is safe to import mmengine and mmyolo
     import mmengine
     from mmyolo import __file__ as mmyolo_init_path
