@@ -9,6 +9,12 @@ import argparse
 import os
 import sys
 
+# Add parent directory of this script to sys.path to import from root workspace
+script_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(script_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
 # Clear distributed environment variables to prevent MMEngine/PyTorch DDP initialization deadlock
 # when run in single-process mode inside a Jupyter/Kaggle multi-GPU environment.
 for env_var in ["WORLD_SIZE", "RANK", "LOCAL_RANK", "MASTER_ADDR", "MASTER_PORT"]:
@@ -125,7 +131,7 @@ import torch.nn.functional as F
 import cv2
 from mmdet.apis import init_detector, inference_detector
 from mmdet.structures import DetDataSample
-from transformers import CLIPProcessor, CLIPModel
+from image_retrieval import load_feature_extractor, extract_visual_features
 import transformers.utils.logging as hf_logging
 
 # Prevent Jupyter stdout buffer deadlocks from fast tqdm progress bars
@@ -164,12 +170,16 @@ def parse_args():
                         help="Path to save markdown report file")
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu",
                         help="Device to use for inference")
-    parser.add_argument("--clip-model", type=str, default="/kaggle/input/models/yujkaggle/openaiclip-vit-base-patch32/pytorch/default/1",
-                        help="CLIP vision model to use")
+    parser.add_argument("--extractor-type", type=str, default="clip", choices=["clip", "dinov2", "vit"],
+                        help="Feature extractor type to use")
+    parser.add_argument("--extractor-model", type=str, default=None,
+                        help="Feature extractor model repository or local path")
+    parser.add_argument("--clip-model", type=str, default=None,
+                        help="Deprecated alias for --extractor-model")
     parser.add_argument("--score-thr", type=float, default=0.35,
                         help="Confidence threshold for pest detection")
     parser.add_argument("--detector-retrieval", action="store_true",
-                        help="Use the detector's own retrieval head instead of CLIP")
+                        help="Use the detector's own retrieval head instead of CLIP/ViT/DinoV2")
     parser.add_argument("--current-task", type=int, default=1, choices=[1, 2, 3, 4],
                         help="Task index currently trained (1, 2, 3, or 4)")
     parser.add_argument("--history-file", type=str, default="history_metrics.json",
@@ -323,12 +333,13 @@ def calculate_fpr_at_tpr95(fpr, tpr) -> float:
 def extract_split_embeddings(
     records: List[Dict], 
     model, 
-    clip_model, 
-    clip_processor, 
+    extractor_model, 
+    extractor_processor, 
     device: str, 
     score_thr: float,
     desc: str,
     use_detector_retrieval: bool = False,
+    extractor_type: str = "clip",
     batch_size: int = 64
 ) -> List[Dict]:
     processed_records = []
@@ -355,22 +366,21 @@ def extract_split_embeddings(
                     best_box = boxes[best_idx]
                     
             cropped_img = None
-            if not use_detector_retrieval:
-                if best_box is not None:
-                    x1, y1, x2, y2 = best_box
-                    box_w = x2 - x1
-                    box_h = y2 - y1
-                    pad_w = int(0.1 * box_w)
-                    pad_h = int(0.1 * box_h)
-                    
-                    x1_pad = max(0, int(x1 - pad_w))
-                    y1_pad = max(0, int(y1 - pad_h))
-                    x2_pad = min(width, int(x2 + pad_w))
-                    y2_pad = min(height, int(y2 + pad_h))
-                    
-                    cropped_img = img_pil.crop((x1_pad, y1_pad, x2_pad, y2_pad))
-                else:
-                    cropped_img = img_pil
+            if best_box is not None:
+                x1, y1, x2, y2 = best_box
+                box_w = x2 - x1
+                box_h = y2 - y1
+                pad_w = int(0.1 * box_w)
+                pad_h = int(0.1 * box_h)
+                
+                x1_pad = max(0, int(x1 - pad_w))
+                y1_pad = max(0, int(y1 - pad_h))
+                x2_pad = min(width, int(x2 + pad_w))
+                y2_pad = min(height, int(y2 + pad_h))
+                
+                cropped_img = img_pil.crop((x1_pad, y1_pad, x2_pad, y2_pad))
+            else:
+                cropped_img = img_pil
                 
             unknown_score = 0.0
             if best_box is not None and hasattr(model, 'bbox_head') and hasattr(model.bbox_head, 'att_embeddings') and model.bbox_head.att_embeddings is not None:
@@ -392,12 +402,13 @@ def extract_split_embeddings(
                 
                 if feature_vector is None:
                     data_sample = DetDataSample()
+                    crop_bgr = cv2.cvtColor(np.array(cropped_img.resize((640, 640))), cv2.COLOR_RGB2BGR)
                     data_sample.set_metainfo({
-                        'img_shape': img_bgr.shape[:2],
-                        'ori_shape': img_bgr.shape[:2],
-                        'pad_shape': img_bgr.shape[:2],
+                        'img_shape': crop_bgr.shape[:2],
+                        'ori_shape': crop_bgr.shape[:2],
+                        'pad_shape': crop_bgr.shape[:2],
                     })
-                    img_tensor = torch.from_numpy(img_bgr).permute(2, 0, 1).unsqueeze(0).float().to(device)
+                    img_tensor = torch.from_numpy(crop_bgr).permute(2, 0, 1).unsqueeze(0).float().to(device)
                     with torch.no_grad():
                         batch_inputs, batch_data_samples = model.data_preprocessor(img_tensor, [data_sample])
                         img_feats, txt_feats = model.extract_feat(batch_inputs, batch_data_samples)
@@ -426,25 +437,22 @@ def extract_split_embeddings(
         except Exception as e:
             continue
             
-    # Bước 2: Trích xuất song song theo Batch bằng CLIP
+    # Bước 2: Trích xuất song song theo Batch bằng bộ trích xuất đặc trưng visual
     if not use_detector_retrieval and crops:
         num_crops = len(crops)
-        for i in tqdm(range(0, num_crops, batch_size), desc=f"{desc} (CLIP Batch Inference)"):
+        for i in tqdm(range(0, num_crops, batch_size), desc=f"{desc} ({extractor_type.upper()} Batch Inference)"):
             batch_crops = crops[i:i + batch_size]
             batch_idxs = valid_indices[i:i + batch_size]
             
             try:
-                inputs = clip_processor(images=batch_crops, return_tensors="pt", padding=True).to(device)
                 with torch.no_grad():
-                    features = clip_model.get_image_features(**inputs)
-                    if not isinstance(features, torch.Tensor):
-                        if hasattr(features, "pooler_output") and features.pooler_output is not None:
-                            features = features.pooler_output
-                        elif hasattr(features, "image_embeds") and features.image_embeds is not None:
-                            features = features.image_embeds
-                        elif isinstance(features, (list, tuple)):
-                            features = features[0]
-                    features = features / features.norm(dim=-1, keepdim=True)
+                    features = extract_visual_features(
+                        model=extractor_model,
+                        processor=extractor_processor,
+                        images=batch_crops,
+                        extractor_type=extractor_type,
+                        device=device
+                    )
                     features_np = features.cpu().numpy()
                     
                 for j, f_np in enumerate(features_np):
@@ -556,18 +564,34 @@ def evaluate_retrieval(query_data: List[Dict], gallery_data: List[Dict]) -> Tupl
 def main():
     args = parse_args()
     
+    if args.extractor_model is None:
+        if args.clip_model is not None:
+            args.extractor_model = args.clip_model
+        else:
+            if args.extractor_type == "clip":
+                # Check if the Kaggle path exists
+                kaggle_clip = "/kaggle/input/models/yujkaggle/openaiclip-vit-base-patch32/pytorch/default/1"
+                if os.path.exists(kaggle_clip):
+                    args.extractor_model = kaggle_clip
+                else:
+                    args.extractor_model = "openai/clip-vit-base-patch32"
+            elif args.extractor_type == "dinov2":
+                args.extractor_model = "facebook/dinov2-base"
+            else:
+                args.extractor_model = "google/vit-base-patch16-224"
+
     import shutil
-    local_clip_path = "/kaggle/input/models/yujkaggle/openaiclip-vit-base-patch32/pytorch/default/1"
-    tmp_clip_path = "/tmp/clip_model"
-    if os.path.exists(local_clip_path):
-        if not os.path.exists(tmp_clip_path):
+    local_model_path = "/kaggle/input/models/yujkaggle/openaiclip-vit-base-patch32/pytorch/default/1"
+    if args.extractor_model == local_model_path:
+        tmp_model_path = "/tmp/clip_model"
+        if not os.path.exists(tmp_model_path):
             try:
-                print(f"-> Copying CLIP model from {local_clip_path} to {tmp_clip_path} to prevent mmap hang...")
-                shutil.copytree(local_clip_path, tmp_clip_path, dirs_exist_ok=True)
+                print(f"-> Copying CLIP model from {local_model_path} to {tmp_model_path} to prevent mmap hang...")
+                shutil.copytree(local_model_path, tmp_model_path, dirs_exist_ok=True)
             except Exception as e:
                 print(f"-> Failed to copy model: {e}")
-                tmp_clip_path = local_clip_path
-        args.clip_model = tmp_clip_path
+                tmp_model_path = local_model_path
+        args.extractor_model = tmp_model_path
 
     print("="*60)
     print("      LIFELONG IMAGE RETRIEVAL EVALUATION PIPELINE      ")
@@ -591,19 +615,21 @@ def main():
             force_reextract_query = True
 
     detector_model = None
-    clip_model = None
-    clip_processor = None
+    extractor_model = None
+    extractor_processor = None
 
     def get_models():
-        nonlocal detector_model, clip_model, clip_processor
+        nonlocal detector_model, extractor_model, extractor_processor
         if detector_model is None:
             detector_model = init_detector(args.config, args.checkpoint, device=args.device)
             detector_model.eval()
-        if not args.detector_retrieval and clip_model is None:
-            print(f"-> Loading CLIP model: {args.clip_model}")
-            clip_model = CLIPModel.from_pretrained(args.clip_model, local_files_only=True, low_cpu_mem_usage=False).to(args.device)
-            clip_processor = CLIPProcessor.from_pretrained(args.clip_model, local_files_only=True)
-        return detector_model, clip_model, clip_processor
+        if not args.detector_retrieval and extractor_model is None:
+            extractor_model, extractor_processor = load_feature_extractor(
+                model_name=args.extractor_model,
+                extractor_type=args.extractor_type,
+                device=args.device
+            )
+        return detector_model, extractor_model, extractor_processor
 
     if os.path.exists(args.query_cache) and not force_reextract_query:
         print(f"-> Loading Query embeddings from cache: {args.query_cache}")
@@ -611,11 +637,11 @@ def main():
             query_processed = pickle.load(f)
     else:
         print("-> Extracting Query embeddings...")
-        detector_model, clip_model, clip_processor = get_models()
+        detector_model, extractor_model, extractor_processor = get_models()
         
         query_processed = extract_split_embeddings(
-            query_records, detector_model, clip_model, clip_processor, args.device,
-            args.score_thr, "Query Extraction", args.detector_retrieval
+            query_records, detector_model, extractor_model, extractor_processor, args.device,
+            args.score_thr, "Query Extraction", args.detector_retrieval, args.extractor_type
         )
         with open(args.query_cache, "wb") as f:
             pickle.dump(query_processed, f)
@@ -627,11 +653,11 @@ def main():
             gallery_processed = pickle.load(f)
     else:
         print("-> Extracting Gallery embeddings...")
-        detector_model, clip_model, clip_processor = get_models()
+        detector_model, extractor_model, extractor_processor = get_models()
         
         gallery_processed = extract_split_embeddings(
-            gallery_records, detector_model, clip_model, clip_processor, args.device,
-            args.score_thr, "Gallery Extraction", args.detector_retrieval
+            gallery_records, detector_model, extractor_model, extractor_processor, args.device,
+            args.score_thr, "Gallery Extraction", args.detector_retrieval, args.extractor_type
         )
         with open(args.gallery_cache, "wb") as f:
             pickle.dump(gallery_processed, f)
@@ -776,7 +802,7 @@ def main():
         f.write(f"# Lifelong Image Retrieval Report - Task {args.current_task}\n\n")
         f.write(f"- **Query Split:** `{args.query_split}`\n")
         f.write(f"- **Gallery Split:** `{args.gallery_split}`\n")
-        f.write(f"- **Retrieval Mode:** `{'Detector Head' if args.detector_retrieval else 'CLIP'}`\n\n")
+        f.write(f"- **Retrieval Mode:** `{'Detector Head' if args.detector_retrieval else args.extractor_type.upper()}`\n\n")
         
         f.write("## 1. Global Summarized Metrics\n\n")
         f.write("| Metric | Macro Average | Explanation |\n")
