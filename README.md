@@ -50,6 +50,21 @@ Start the demo with the launcher or call the app directly.
 run_demo.bat
 ```
 
+## Image Retrieval (CBIR)
+
+Instead of detecting object coordinates, the model can be used for **content-based image retrieval**: given a query image, return the top-K most similar images from a gallery database. This uses the pretrained CLIP vision encoder to extract embeddings (no retraining) and cosine similarity for ranking.
+
+```bash
+# Full pipeline: build index, evaluate Recall@k, visualize top-K results
+# via retrieval.ipynb (Kaggle-friendly, offline-first CLIP loading)
+```
+
+Core utilities live in `image_retrieval.py`:
+- `find_dataset_root()` / `collect_images()`: locate IP102 and list image paths + labels
+- `load_clip()` / `extract_embeddings()` / `build_index()`: encode gallery images into normalized embeddings
+- `retrieve()`: return top-K similar images + scores for a query embedding
+- `evaluate()` / `print_report()`: Recall@1/@5/@10 evaluation per class
+
 ## Notes
 
 - The project is research-oriented, so some paths and scripts are tailored to the author's original setup.

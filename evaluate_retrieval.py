@@ -366,24 +366,23 @@ def extract_split_embeddings(
                 if scores[best_idx] >= score_thr:
                     best_box = boxes[best_idx]
                     
-            # Stage 1: Crop with 10% padding (only if using CLIP)
+            # Stage 1: Crop with 10% padding (exclude background)
             cropped_img = None
-            if not use_detector_retrieval:
-                if best_box is not None:
-                    x1, y1, x2, y2 = best_box
-                    box_w = x2 - x1
-                    box_h = y2 - y1
-                    pad_w = int(0.1 * box_w)
-                    pad_h = int(0.1 * box_h)
-                    
-                    x1_pad = max(0, int(x1 - pad_w))
-                    y1_pad = max(0, int(y1 - pad_h))
-                    x2_pad = min(width, int(x2 + pad_w))
-                    y2_pad = min(height, int(y2 + pad_h))
-                    
-                    cropped_img = img_pil.crop((x1_pad, y1_pad, x2_pad, y2_pad))
-                else:
-                    cropped_img = img_pil
+            if best_box is not None:
+                x1, y1, x2, y2 = best_box
+                box_w = x2 - x1
+                box_h = y2 - y1
+                pad_w = int(0.1 * box_w)
+                pad_h = int(0.1 * box_h)
+                
+                x1_pad = max(0, int(x1 - pad_w))
+                y1_pad = max(0, int(y1 - pad_h))
+                x2_pad = min(width, int(x2 + pad_w))
+                y2_pad = min(height, int(y2 + pad_h))
+                
+                cropped_img = img_pil.crop((x1_pad, y1_pad, x2_pad, y2_pad))
+            else:
+                cropped_img = img_pil
                 
             # Compute HAUF Anomaly score
             unknown_score = 0.0
@@ -409,12 +408,13 @@ def extract_split_embeddings(
                 # Fallback if no box detected or features not populated
                 if feature_vector is None:
                     data_sample = DetDataSample()
+                    crop_bgr = cv2.cvtColor(np.array(cropped_img.resize((640, 640))), cv2.COLOR_RGB2BGR)
                     data_sample.set_metainfo({
-                        'img_shape': img_bgr.shape[:2],
-                        'ori_shape': img_bgr.shape[:2],
-                        'pad_shape': img_bgr.shape[:2],
+                        'img_shape': crop_bgr.shape[:2],
+                        'ori_shape': crop_bgr.shape[:2],
+                        'pad_shape': crop_bgr.shape[:2],
                     })
-                    img_tensor = torch.from_numpy(img_bgr).permute(2, 0, 1).unsqueeze(0).float().to(device)
+                    img_tensor = torch.from_numpy(crop_bgr).permute(2, 0, 1).unsqueeze(0).float().to(device)
                     with torch.no_grad():
                         batch_inputs, batch_data_samples = model.data_preprocessor(img_tensor, [data_sample])
                         img_feats, txt_feats = model.extract_feat(batch_inputs, batch_data_samples)

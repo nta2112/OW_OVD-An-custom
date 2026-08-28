@@ -7,6 +7,9 @@ __pycache__/
 # Kaggle / Local temp data
 data/
 pretrained_models/
+IP102 dataset/
+checkpoint cũ lỗi 102 lớp.ipynb
+old retrival/
 
 # Thư mục ablation & visualize theo yêu cầu
 new ablation/
@@ -16,3 +19,9 @@ visualize/
 # Môi trường Conda
 environment_demo.yml
 setup_ow_ovd_env.bat
+
+# Temp files
+NewRetrieval_02/*.txt
+*.pkl
+work_dirs/
+

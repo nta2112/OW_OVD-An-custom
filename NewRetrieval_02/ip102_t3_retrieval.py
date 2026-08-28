@@ -6,6 +6,9 @@ custom_imports = dict(
 )
 
 model = dict(
+    neck=dict(
+        freeze_all=True
+    ),
     bbox_head=dict(
         type='OurHeadRetrieval',
         retrieval_dim=256,
@@ -16,7 +19,8 @@ model = dict(
         text_channels=512,
         head_module=dict(
             type='OurHeadRetrievalModule',
-            retrieval_dim=256
+            retrieval_dim=256,
+            freeze_all=True
         )
     )
 )
