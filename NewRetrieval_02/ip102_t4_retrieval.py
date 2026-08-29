@@ -25,7 +25,7 @@ model = dict(
     )
 )
 
-max_epochs = 1
+max_epochs = 5
 close_mosaic_epochs = 1
 train_batch_size_per_gpu = 16
 
