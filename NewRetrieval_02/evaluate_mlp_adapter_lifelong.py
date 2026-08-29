@@ -288,6 +288,41 @@ def evaluate_retrieval(query_data: List[Dict], gallery_data: List[Dict]) -> Tupl
         
     return class_metrics, macro_r1, macro_r5, macro_r10, macro_ap
 
+def calculate_auroc_numpy(y_true, y_scores) -> Tuple[float, np.ndarray, np.ndarray]:
+    y_true = np.array(y_true)
+    y_scores = np.array(y_scores)
+    
+    desc_score_indices = np.argsort(y_scores)[::-1]
+    y_true = y_true[desc_score_indices]
+    y_scores = y_scores[desc_score_indices]
+    
+    n_pos = np.sum(y_true)
+    n_neg = len(y_true) - n_pos
+    
+    if n_pos == 0 or n_neg == 0:
+        return 0.5, np.array([0.0, 1.0]), np.array([0.0, 1.0])
+        
+    tp = np.cumsum(y_true)
+    fp = np.cumsum(1 - y_true)
+    
+    tpr = tp / n_pos
+    fpr = fp / n_neg
+    
+    tpr = np.concatenate(([0.0], tpr))
+    fpr = np.concatenate(([0.0], fpr))
+    
+    area = 0.0
+    for i in range(len(fpr) - 1):
+        area += 0.5 * (tpr[i] + tpr[i+1]) * (fpr[i+1] - fpr[i])
+        
+    return area, fpr, tpr
+
+def calculate_fpr_at_tpr95(fpr, tpr) -> float:
+    idx = np.where(tpr >= 0.95)[0]
+    if len(idx) > 0:
+        return fpr[idx[0]]
+    return 1.0
+
 def main():
     args = parse_args()
     
@@ -370,18 +405,70 @@ def main():
         query_processed, gallery_processed
     )
     
-    # 5. Seen vs Unseen analysis
+    # 5. Seen vs Unseen analysis & OOD Anomaly Detection
     known_labels = TASK_GROUPS[1] + TASK_GROUPS[2] + TASK_GROUPS[3] + TASK_GROUPS[4]
     current_knowns = []
     for t_idx in range(1, args.current_task + 1):
         current_knowns += TASK_GROUPS[t_idx]
-        
+    
+    # Calculate OOD score (unknown_score) using Nearest Neighbor distance in retrieval space
+    gallery_embeddings = np.array([item["retrieval_embedding"] for item in gallery_processed])
+    gallery_labels = [item["class_label"] for item in gallery_processed]
+    known_gallery_indices = [idx for idx, label in enumerate(gallery_labels) if label in current_knowns]
+    
+    if len(known_gallery_indices) > 0:
+        for q_item in query_processed:
+            q_embed = q_item["retrieval_embedding"]
+            sims = np.dot(q_embed, gallery_embeddings[known_gallery_indices].T)
+            max_known_sim = np.max(sims)
+            q_item["unknown_score"] = float(1.0 - max_known_sim)
+    else:
+        for q_item in query_processed:
+            q_item["unknown_score"] = 0.0
+
     seen_r1s = [q_item["r1"] for q_item in query_processed if q_item["class_label"] in current_knowns]
     unseen_r1s = [q_item["r1"] for q_item in query_processed if q_item["class_label"] not in current_knowns and q_item["class_label"] in known_labels]
     
     recall_seen_r1 = float(np.mean(seen_r1s)) if len(seen_r1s) > 0 else 0.0
     recall_unseen_r1 = float(np.mean(unseen_r1s)) if len(unseen_r1s) > 0 else None
     
+    # Calculate AUROC and FPR@TPR95
+    auroc = None
+    fpr95 = None
+    y_true_ood = []
+    y_scores_ood = []
+    for q_item in query_processed:
+        q_label = q_item["class_label"]
+        if q_label in known_labels:
+            is_unknown = 0 if q_label in current_knowns else 1
+            y_true_ood.append(is_unknown)
+            y_scores_ood.append(q_item["unknown_score"])
+            
+    if len(y_true_ood) > 0 and sum(y_true_ood) > 0 and sum(y_true_ood) < len(y_true_ood):
+        auroc, fpr, tpr = calculate_auroc_numpy(y_true_ood, y_scores_ood)
+        fpr95 = calculate_fpr_at_tpr95(fpr, tpr)
+        
+        # Save ROC curve image
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+            plt.figure()
+            plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {auroc:0.4f})')
+            plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+            plt.xlim([0.0, 1.0])
+            plt.ylim([0.0, 1.05])
+            plt.xlabel('False Positive Rate')
+            plt.ylabel('True Positive Rate')
+            plt.title('Receiver Operating Characteristic (OOD)')
+            plt.legend(loc="lower right")
+            plot_path = f"roc_curve_task_{args.current_task}_mlp.png"
+            plt.savefig(plot_path)
+            plt.close()
+            print(f"-> Saved ROC Curve plot to: {plot_path}")
+        except Exception:
+            pass
+
     # 6. Lifelong metric computations (Plasticity, Forgetting, Overall Change)
     history = {}
     if os.path.exists(args.history_file):
@@ -421,6 +508,10 @@ def main():
     forgetting = float(np.mean(forgetting_list)) if len(forgetting_list) > 0 else 0.0
     overall_change = plasticity - forgetting
     
+    # Helper formatter for print
+    def fmt_val(v):
+        return f"{v:.4f}" if v is not None else "None"
+
     # 7. Print summary report
     print("\n" + "="*40 + " EVALUATION SUMMARY (MLP ADAPTER) Task " + str(args.current_task) + " " + "="*40)
     print(f"Global mAP:       {macro_ap:.4f}")
@@ -428,7 +519,9 @@ def main():
     print(f"Recall@5:         {macro_r5:.4f}")
     print(f"Recall@10:        {macro_r10:.4f}")
     print(f"Recall@1 (Seen):  {recall_seen_r1:.4f}")
-    print(f"Recall@1 (Unseen):{f'{recall_unseen_r1:.4f}' if recall_unseen_r1 is not None else 'None'}")
+    print(f"Recall@1 (Unseen):{fmt_val(recall_unseen_r1)}")
+    print(f"OOD AUROC:        {fmt_val(auroc)}")
+    print(f"OOD FPR@TPR95:    {fmt_val(fpr95)}")
     print("-"*40)
     print(f"Plasticity:       {plasticity:.4f}")
     print(f"Forgetting (mAP): {forgetting:.4f} ({forgetting*100:.2f}%)")
@@ -455,7 +548,9 @@ def main():
         f.write(f"| **Recall@5** | {macro_r5:.4f} |\n")
         f.write(f"| **Recall@10** | {macro_r10:.4f} |\n")
         f.write(f"| **Recall@1 (Seen)** | {recall_seen_r1:.4f} |\n")
-        f.write(f"| **Recall@1 (Unseen)** | {f'{recall_unseen_r1:.4f}' if recall_unseen_r1 is not None else 'N/A'} |\n\n")
+        f.write(f"| **Recall@1 (Unseen)** | {f'{recall_unseen_r1:.4f}' if recall_unseen_r1 is not None else 'N/A'} |\n")
+        f.write(f"| **OOD AUROC** | {f'{auroc:.4f}' if auroc is not None else 'N/A'} |\n")
+        f.write(f"| **OOD FPR@TPR95** | {f'{fpr95:.4f}' if fpr95 is not None else 'N/A'} |\n\n")
         
     print(f"Saved evaluation report to: {args.output_report}")
 
