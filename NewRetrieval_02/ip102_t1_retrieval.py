@@ -25,8 +25,7 @@ model = dict(
     )
 )
 
-# Load pretrained checkpoint có chứa Weights Retrieval Head hoàn chỉnh
-load_from = '/kaggle/input/models/nta212/task-1-ow-ovd-25-class/pytorch/default/3/best_coco_Current class AP50_epoch_5.pth'
+
 
 max_epochs = 5
 close_mosaic_epochs = 1
