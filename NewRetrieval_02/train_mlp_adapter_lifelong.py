@@ -99,16 +99,15 @@ def load_train_crops(dataset_root: str, target_classes: List[str]) -> List[Tuple
     # Filter images containing annotations of target classes
     img_id_to_file = {img['id']: img['file_name'] for img in coco.get('images', [])}
     
-    # Find image folder
-    image_folder = dataset_root
-    found_folder = False
-    for subfolder in ['train', 'train/train', 'images']:
-        test_path = os.path.join(dataset_root, subfolder)
-        if os.path.exists(test_path) and os.path.isdir(test_path):
-            image_folder = test_path
-            found_folder = True
-            break
-            
+    # Index all image paths in dataset_root recursively once
+    print("-> Scanning dataset root to index image file paths...")
+    image_path_map = {}
+    for root, _, files in os.walk(dataset_root):
+        for f_name in files:
+            if f_name.lower().endswith(('.jpg', '.jpeg', '.png')):
+                image_path_map[f_name] = os.path.join(root, f_name)
+    print(f"-> Indexed {len(image_path_map)} images.")
+    
     crops_info = []
     for ann in coco.get('annotations', []):
         cat_id = ann['category_id']
@@ -117,15 +116,10 @@ def load_train_crops(dataset_root: str, target_classes: List[str]) -> List[Tuple
             file_name = os.path.basename(img_id_to_file.get(img_id, ''))
             if not file_name:
                 continue
-            img_path = os.path.join(image_folder, file_name)
-            if not os.path.exists(img_path):
-                # Search recursively as fallback
-                import glob
-                matches = glob.glob(os.path.join(dataset_root, '**', file_name), recursive=True)
-                if matches:
-                    img_path = matches[0]
-                else:
-                    continue
+            
+            img_path = image_path_map.get(file_name)
+            if img_path is None or not os.path.exists(img_path):
+                continue
                     
             bbox = ann['bbox'] # [x, y, w, h]
             crops_info.append((img_path, bbox, cat_id))
@@ -171,7 +165,8 @@ def extract_crops_features(crops_info: List[Tuple[str, list, int]], extractor_mo
             labels_batch.append(label)
             
             if len(crops) >= batch_size:
-                feats = extract_visual_features(extractor_model, extractor_processor, crops, extractor_type, str(device))
+                with torch.no_grad():
+                    feats = extract_visual_features(extractor_model, extractor_processor, crops, extractor_type, str(device))
                 features_list.append(feats.cpu())
                 labels_list.extend(labels_batch)
                 crops = []
@@ -180,7 +175,8 @@ def extract_crops_features(crops_info: List[Tuple[str, list, int]], extractor_mo
             continue
             
     if crops:
-        feats = extract_visual_features(extractor_model, extractor_processor, crops, extractor_type, str(device))
+        with torch.no_grad():
+            feats = extract_visual_features(extractor_model, extractor_processor, crops, extractor_type, str(device))
         features_list.append(feats.cpu())
         labels_list.extend(labels_batch)
         

@@ -54,29 +54,22 @@ def load_dataset_records(dataset_root: str, split: str) -> List[Dict]:
         
     cat_id_to_name = {cat['id']: cat['name'] for cat in coco.get('categories', [])}
     
-    # Resolve image folder
-    image_folder = dataset_root
-    found_folder = False
-    for subfolder in [split, 'images', 'test/test', 'train/train', 'val/val']:
-        test_path = os.path.join(dataset_root, subfolder)
-        if os.path.exists(test_path) and os.path.isdir(test_path):
-            image_folder = test_path
-            found_folder = True
-            break
-            
-    if not found_folder:
-        for root, _, files in os.walk(dataset_root):
-            if any(f.lower().endswith(('.jpg', '.jpeg', '.png')) for f in files):
-                image_folder = root
-                break
-                
+    # Index all image paths in dataset_root recursively once to avoid recursive glob inside the loop
+    print(f"-> Scanning dataset root to index file paths for split '{split}'...")
+    image_path_map = {}
+    for root, _, files in os.walk(dataset_root):
+        for f_name in files:
+            if f_name.lower().endswith(('.jpg', '.jpeg', '.png')):
+                image_path_map[f_name] = os.path.join(root, f_name)
+    print(f"-> Indexed {len(image_path_map)} images.")
+    
     images = coco.get('images', [])
     img_id_to_info = {}
     for img in images:
         file_name = os.path.basename(img['file_name'])
         img_id_to_info[img['id']] = {
             'file_name': file_name,
-            'image_path': os.path.join(image_folder, file_name)
+            'image_path': image_path_map.get(file_name)
         }
         
     annotations = coco.get('annotations', [])
@@ -93,14 +86,8 @@ def load_dataset_records(dataset_root: str, split: str) -> List[Dict]:
             continue
             
         real_path = info['image_path']
-        if not os.path.exists(real_path):
-            import glob
-            basename = os.path.basename(real_path)
-            matches = glob.glob(os.path.join(dataset_root, '**', basename), recursive=True)
-            if matches:
-                real_path = matches[0]
-            else:
-                continue
+        if real_path is None or not os.path.exists(real_path):
+            continue
                 
         records.append({
             "image_path": real_path,
