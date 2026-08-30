@@ -127,7 +127,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate Lifelong CBIR Pest Retrieval System using MLP Adapter")
     parser.add_argument("--config", type=str, required=True, help="Path to detector config file")
     parser.add_argument("--checkpoint", type=str, required=True, help="Path to detector checkpoint file")
-    parser.add_argument("--mlp-checkpoint", type=str, required=True, help="Path to the trained MLP adapter checkpoint file")
+    parser.add_argument("--mlp-checkpoint", type=str, default="", help="Path to the trained MLP adapter checkpoint file")
+    parser.add_argument("--no-adapter", action="store_true", help="Bypass MLP projection and use raw visual features directly")
     parser.add_argument("--dataset-root", type=str, required=True, help="Path to IP102 dataset root directory")
     parser.add_argument("--query-split", type=str, default="val", help="Dataset split to use as Query (e.g. val, test)")
     parser.add_argument("--gallery-split", type=str, default="test", help="Dataset split to use as Gallery (e.g. test, train)")
@@ -467,23 +468,32 @@ def main():
             pickle.dump(gallery_processed, f)
             
     # 3. Load MLP Adapter and project features
-    print(f"-> Loading trained MLP adapter from: {args.mlp_checkpoint}")
-    input_dim = query_processed[0]["base_feature"].shape[0]
-    mlp = MLPAdapter(input_dim=input_dim, output_dim=256).to(args.device)
-    mlp.load_state_dict(torch.load(args.mlp_checkpoint, map_location=args.device))
-    mlp.eval()
-    
-    # Project features
-    with torch.no_grad():
+    if args.no_adapter:
+        print("-> [Bypass Mode] Using raw feature extraction embeddings directly (No MLP projection).")
         for q_item in query_processed:
-            feat_tensor = torch.tensor(q_item["base_feature"], dtype=torch.float32).unsqueeze(0).to(args.device)
-            proj_feat = mlp(feat_tensor).squeeze(0).cpu().numpy()
-            q_item["retrieval_embedding"] = proj_feat
-            
+            q_item["retrieval_embedding"] = q_item["base_feature"]
         for g_item in gallery_processed:
-            feat_tensor = torch.tensor(g_item["base_feature"], dtype=torch.float32).unsqueeze(0).to(args.device)
-            proj_feat = mlp(feat_tensor).squeeze(0).cpu().numpy()
-            g_item["retrieval_embedding"] = proj_feat
+            g_item["retrieval_embedding"] = g_item["base_feature"]
+    else:
+        if not args.mlp_checkpoint:
+            raise ValueError("Error: --mlp-checkpoint must be provided unless --no-adapter is specified.")
+        print(f"-> Loading trained MLP adapter from: {args.mlp_checkpoint}")
+        input_dim = query_processed[0]["base_feature"].shape[0]
+        mlp = MLPAdapter(input_dim=input_dim, output_dim=256).to(args.device)
+        mlp.load_state_dict(torch.load(args.mlp_checkpoint, map_location=args.device))
+        mlp.eval()
+        
+        # Project features
+        with torch.no_grad():
+            for q_item in query_processed:
+                feat_tensor = torch.tensor(q_item["base_feature"], dtype=torch.float32).unsqueeze(0).to(args.device)
+                proj_feat = mlp(feat_tensor).squeeze(0).cpu().numpy()
+                q_item["retrieval_embedding"] = proj_feat
+                
+            for g_item in gallery_processed:
+                feat_tensor = torch.tensor(g_item["base_feature"], dtype=torch.float32).unsqueeze(0).to(args.device)
+                proj_feat = mlp(feat_tensor).squeeze(0).cpu().numpy()
+                g_item["retrieval_embedding"] = proj_feat
             
     # 4. Evaluate Retrieval
     class_metrics, macro_r1, macro_r5, macro_r10, macro_ap = evaluate_retrieval(
@@ -615,10 +625,11 @@ def main():
     
     # 8. Save Detailed Markdown Report
     with open(args.output_report, "w", encoding="utf-8") as f:
-        f.write(f"# Lifelong MLP Adapter Retrieval Report (Task {args.current_task})\n\n")
+        title_suffix = "MLP Adapter" if not args.no_adapter else "Raw Visual Features"
+        f.write(f"# Lifelong {title_suffix} Retrieval Report (Task {args.current_task})\n\n")
         f.write(f"- **Extractor Type:** `{args.extractor_type}`\n")
         f.write(f"- **Base Extractor Model:** `{args.extractor_model}`\n")
-        f.write(f"- **MLP Checkpoint:** `{args.mlp_checkpoint}`\n\n")
+        f.write(f"- **MLP Checkpoint:** `{args.mlp_checkpoint if not args.no_adapter else 'None (Bypass Mode)'}`\n\n")
         f.write("## Lifelong Metrics\n\n")
         f.write("| Metric | Score | Description |\n")
         f.write("| :--- | :---: | :--- |\n")
