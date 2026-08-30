@@ -109,6 +109,8 @@ class CropsDataset(Dataset):
             y2 = min(h_img, int(y + h + pad_h))
             
             crop = img_pil.crop((x1, y1, x2, y2))
+            if crop.size[0] <= 0 or crop.size[1] <= 0:
+                crop = Image.new("RGB", (224, 224), (128, 128, 128))
         except Exception:
             crop = Image.new("RGB", (224, 224), (128, 128, 128))
             

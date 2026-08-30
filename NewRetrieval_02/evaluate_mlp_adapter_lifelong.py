@@ -242,6 +242,9 @@ def extract_split_base_embeddings(
                 y2_pad = min(height, int(y2 + pad_h))
                 
                 cropped_img = img_pil.crop((x1_pad, y1_pad, x2_pad, y2_pad))
+                # Protect against zero-sized crops
+                if cropped_img.size[0] <= 0 or cropped_img.size[1] <= 0:
+                    cropped_img = img_pil
             else:
                 cropped_img = img_pil
                 

@@ -161,6 +161,8 @@ def extract_crops_features(crops_info: List[Tuple[str, list, int]], extractor_mo
             y2 = min(h_img, int(y + h + pad_h))
             
             crop = img_pil.crop((x1, y1, x2, y2))
+            if crop.size[0] <= 0 or crop.size[1] <= 0:
+                continue
             crops.append(crop)
             labels_batch.append(label)
             
