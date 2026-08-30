@@ -289,6 +289,7 @@ val_evaluator = dict(_delete_=True,
                          class_names=class_names
                       )
                      )
+train_cfg = dict(max_epochs=max_epochs, val_interval=999)
 find_unused_parameters = True
 
 # Clean up all temporary variables from config namespace to avoid deepcopy/pickle errors (e.g. TextIOWrapper)
