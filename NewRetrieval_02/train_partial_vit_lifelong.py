@@ -194,7 +194,7 @@ def main():
     parser.add_argument("--extractor-model", type=str, required=True, help="Model name or local path for frozen extractor")
     parser.add_argument("--output-dir", type=str, default="work_dirs/partial_vit", help="Directory to save checkpoint files")
     parser.add_argument("--lr", type=float, default=2e-5, help="Learning rate (should be small for backbone fine-tuning)")
-    parser.add_argument("--epochs", type=int, default=5, help="Number of training epochs")
+    parser.add_argument("--epochs", type=int, default=1, help="Number of training epochs")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
     parser.add_argument("--unfreeze-blocks", type=int, default=2, help="Number of last blocks to unfreeze in ViT/DINOv2")
     parser.add_argument("--triplet-margin", type=float, default=0.3, help="Triplet loss margin")
