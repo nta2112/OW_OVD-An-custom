@@ -26,3 +26,7 @@ close_mosaic_epochs = 1
 train_batch_size_per_gpu = 16
 
 train_cfg = dict(max_epochs=max_epochs, val_interval=999)
+train_dataloader = dict(
+    num_workers=2,
+    persistent_workers=False
+)

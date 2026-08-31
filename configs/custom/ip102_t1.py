@@ -292,6 +292,10 @@ val_evaluator = dict(_delete_=True,
                       )
                      )
 train_cfg = dict(max_epochs=max_epochs, val_interval=999)
+train_dataloader = dict(
+    num_workers=0,
+    persistent_workers=False
+)
 find_unused_parameters = True
 
 # Clean up all temporary variables from config namespace to avoid deepcopy/pickle errors (e.g. TextIOWrapper)
